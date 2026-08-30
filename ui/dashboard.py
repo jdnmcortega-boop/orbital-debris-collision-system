@@ -66,6 +66,43 @@ def load_all():
         "reentry": config.RESULTS_DIR / "reentry_analysis.csv",
         "geopolitics": config.RESULTS_DIR / "geopolitical_coordination.csv",
     }
+
+    for key, path in files.items():
+        if path.exists():
+            data[key] = pd.read_csv(path)
+        else:
+            data[key] = None
+
+    json_files = {
+        "classical_security": config.RESULTS_DIR / "classical_security_results.json",
+        "qkd": config.RESULTS_DIR / "qkd_results.json",
+        "benchmark_summary": config.RESULTS_DIR / "benchmark_summary.json",
+    }
+
+    for key, path in json_files.items():
+        if path.exists():
+            with open(path) as f:
+                data[key] = json.load(f)
+        else:
+            data[key] = None
+
+    return data
+
+    try:
+        data["orbital_data"] = data_loader.load_orbital_data()
+    except Exception:
+        data["orbital_data"] = None
+
+    files = {
+        "propagated": config.PROPAGATED_GRID_FILE,
+        "conjunctions": config.CONJUNCTIONS_FILE,
+        "predictions": config.RESULTS_DIR / "predictions.csv",
+        "false_positive": config.RESULTS_DIR / "false_positive_analysis.csv",
+        "qae_comparison": config.RESULTS_DIR / "qae_comparison.csv",
+        "qae_sweep": config.RESULTS_DIR / "qae_accuracy_sweep.csv",
+        "reentry": config.RESULTS_DIR / "reentry_analysis.csv",
+        "geopolitics": config.RESULTS_DIR / "geopolitical_coordination.csv",
+    }
     if path.exists():
         if key == "propagated":
             data[key] = pd.read_csv(
