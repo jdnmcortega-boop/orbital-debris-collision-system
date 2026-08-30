@@ -49,6 +49,13 @@ st.markdown("""
 
 @st.cache_data
 def load_all():
+    st.write("Project root:", PROJECT_ROOT)
+    st.write("Propagation file:", config.PROPAGATED_GRID_FILE)
+    st.write("Propagation file exists:", config.PROPAGATED_GRID_FILE.exists())
+
+    if config.PROPAGATED_GRID_FILE.exists():
+        st.write("Propagation rows:", len(data["propagated"]))
+        st.write("Propagation objects:", data["propagated"]["NORAD_CAT_ID"].nunique())
     data = {}
 
     try:
