@@ -3,3 +3,4 @@
 __pycache__/
 *.pyc
 data/processed/propagated_grid.csvdata/processed/propagated_grid.csv
+data/processed/propagated_grid.csv
