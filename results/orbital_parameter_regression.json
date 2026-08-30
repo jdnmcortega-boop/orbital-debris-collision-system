@@ -1,0 +1,24 @@
+{
+  "miss_distance_model": {
+    "target": "MISS_DISTANCE_KM",
+    "r_squared": 0.018818715420158116,
+    "coefficients": {
+      "ALTITUDE_DIFF_KM": -0.008919359606248421,
+      "INCLINATION_DIFF_DEG": -0.047285444377008795,
+      "MEAN_ECCENTRICITY": -91.975849841306
+    },
+    "intercept": 48.75066707618676,
+    "n_samples": 73
+  },
+  "pc_model": {
+    "target": "ANALYTIC_PC",
+    "r_squared": 0.06826855339370452,
+    "coefficients": {
+      "ALTITUDE_DIFF_KM": 2.1642274256852465e-10,
+      "INCLINATION_DIFF_DEG": 1.2108821202656368e-09,
+      "MEAN_ECCENTRICITY": 1.975637859781224e-06
+    },
+    "intercept": 4.318201753489285e-08,
+    "n_samples": 73
+  }
+}

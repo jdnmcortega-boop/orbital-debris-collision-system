@@ -1,0 +1,96 @@
+{
+  "available": {
+    "propagation": true,
+    "conjunctions": true,
+    "monte_carlo": true,
+    "predictions": true,
+    "reentry": true,
+    "geopolitics": false,
+    "qae_sweep": true,
+    "classical_security": true,
+    "qkd": true
+  },
+  "stats": {
+    "num_objects": 70,
+    "num_propagated_points": 947614,
+    "num_conjunctions": 44,
+    "closest_miss_distance_km": 18.19587659134068,
+    "mean_miss_distance_km": 48.73626935855006,
+    "mc_nonzero_count": 0,
+    "mc_max_probability": 0.0,
+    "risk_counts": {
+      "LOW": 44
+    },
+    "collision_type_counts": {
+      "DEBRIS-SATELLITE": 19,
+      "SATELLITE-SATELLITE": 16,
+      "DEBRIS-DEBRIS": 9
+    }
+  },
+  "top_conjunctions": [
+    {
+      "OBJECT_A": "IRIDIUM 33 DEB",
+      "NORAD_A": 33866,
+      "OBJECT_B": "COSMOS 2251 DEB",
+      "NORAD_B": 33766,
+      "TCA": "2026-09-03T03:40:48.261172+00:00",
+      "MISS_DISTANCE_KM": 18.1958765913,
+      "RELATIVE_VELOCITY_KM_S": 4.4696671075
+    },
+    {
+      "OBJECT_A": "FENGYUN 1C DEB",
+      "NORAD_A": 29738,
+      "OBJECT_B": "COSMOS 2251",
+      "NORAD_B": 22675,
+      "TCA": "2026-08-29T08:27:48.261172+00:00",
+      "MISS_DISTANCE_KM": 19.4702552939,
+      "RELATIVE_VELOCITY_KM_S": 15.0436935674
+    },
+    {
+      "OBJECT_A": "COSMOS 2251 DEB",
+      "NORAD_A": 33760,
+      "OBJECT_B": "RIGIDSPHERE 2 (LCS 4)",
+      "NORAD_B": 5398,
+      "TCA": "2026-09-02T10:41:48.261172+00:00",
+      "MISS_DISTANCE_KM": 25.4562648784,
+      "RELATIVE_VELOCITY_KM_S": 14.5505303024
+    },
+    {
+      "OBJECT_A": "IRIDIUM 33 DEB",
+      "NORAD_A": 33776,
+      "OBJECT_B": "IRIDIUM 33 DEB",
+      "NORAD_B": 33850,
+      "TCA": "2026-08-31T21:20:48.261172+00:00",
+      "MISS_DISTANCE_KM": 28.2618220339,
+      "RELATIVE_VELOCITY_KM_S": 6.6673284798
+    },
+    {
+      "OBJECT_A": "IRIDIUM 33",
+      "NORAD_A": 24946,
+      "OBJECT_B": "IRIDIUM 33 DEB",
+      "NORAD_B": 33773,
+      "TCA": "2026-09-01T17:24:48.261172+00:00",
+      "MISS_DISTANCE_KM": 28.506169349,
+      "RELATIVE_VELOCITY_KM_S": 1.1340789446
+    }
+  ],
+  "classical_security": {
+    "method": "Classical (ECDH + AES-256-GCM)",
+    "handshake_runtime_sec": 0.030874252319335938,
+    "public_key_bytes_exchanged": 194,
+    "plaintext_bytes": 140,
+    "ciphertext_bytes": 156,
+    "round_trip_verified": true
+  },
+  "qkd": {
+    "honest_qber": 0.0,
+    "honest_eavesdropping_detected": false,
+    "intercepted_qber": 0.24060150375939848,
+    "intercepted_eavesdropping_detected": true,
+    "final_key_length_bits_honest": 138,
+    "qubits_transmitted_honest": 512,
+    "qubits_transmitted_intercepted": 1024,
+    "message_round_trip_verified": true,
+    "ciphertext_bytes": 156
+  }
+}

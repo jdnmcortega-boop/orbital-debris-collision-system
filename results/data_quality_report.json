@@ -1,0 +1,14 @@
+{
+  "object_count": 60,
+  "mean_motion_min": 11.93034565,
+  "mean_motion_max": 15.31487121,
+  "eccentricity_min": 3.71e-05,
+  "eccentricity_max": 0.10243452,
+  "inclination_min": 24.969,
+  "inclination_max": 107.9611,
+  "epoch_age_days_min": 0.3054990147222222,
+  "epoch_age_days_max": 134.9589044187037,
+  "epoch_age_days_mean": 4.309318329621914,
+  "debris_count": 30,
+  "satellite_count": 30
+}

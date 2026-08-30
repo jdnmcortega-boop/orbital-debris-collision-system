@@ -1,0 +1,51 @@
+{
+  "H02": {
+    "hypothesis": "H02",
+    "test": "Wilcoxon signed-rank test (paired, two-sided)",
+    "n_pairs": 540,
+    "statistic": 64380.0,
+    "p_value": 0.01703430262958075,
+    "alpha": 0.05,
+    "reject_null": "True",
+    "qae_median_error": 7.946008080059186e-06,
+    "mc_median_error": 0.0001612903225806,
+    "median_difference_qae_minus_mc": -2.252203155438722e-05,
+    "conclusion": "Reject H02 (p=1.703e-02 < 0.05): there IS a statistically significant difference between QAE and classical Monte Carlo error. QAE has the lower median error across 540 paired trials."
+  },
+  "H03": {
+    "hypothesis": "H03",
+    "internal_validity": {
+      "test": "Fisher's exact test (QKD eavesdropped vs QKD honest detection)",
+      "contingency_table": {
+        "eavesdropped_detected": 50,
+        "eavesdropped_not_detected": 0,
+        "honest_detected": 0,
+        "honest_not_detected": 50
+      },
+      "p_value": 1.9823306042836675e-29,
+      "alpha": 0.05,
+      "reject_null": "True",
+      "conclusion": "QKD's detection rate under eavesdropping (50/50) is statistically significantly different from its false-positive rate under normal operation (0/50), p=1.982e-29. The detection mechanism reliably discriminates eavesdropping from normal operation."
+    },
+    "head_to_head_detection": {
+      "test": "Fisher's exact test (QKD eavesdropped detection vs classical, CAVEAT: classical's 0 is structural absence of a detection mechanism, not an empirically measured failure rate)",
+      "contingency_table": {
+        "qkd_eavesdropped_detected": 50,
+        "qkd_eavesdropped_not_detected": 0,
+        "classical_detected": 0,
+        "classical_not_detected": 50
+      },
+      "p_value": 1.9823306042836675e-29,
+      "alpha": 0.05,
+      "reject_null": "True",
+      "conclusion": "Reject H03 for detection capability (p=1.982e-29 < 0.05): QKD detects simulated interception significantly more often than classical transmission, which has no eavesdropping-detection mechanism by design. Note: this compares an empirical rate (QKD) against a structural absence (classical), not two empirically equivalent measurements \u2014 report this distinction explicitly rather than implying classical was tested and failed to detect anything."
+    },
+    "delivery_rate": {
+      "test": "Fisher's exact test (delivery rate, QKD-honest vs classical)",
+      "qkd_delivery_rate": 1.0,
+      "classical_delivery_rate": 1.0,
+      "p_value": 1.0,
+      "conclusion": "No statistically significant difference in delivery rate between QKD (50/50) and classical (50/50) transmission, p=1.000e+00 \u2014 both deliver reliably under normal conditions."
+    }
+  }
+}

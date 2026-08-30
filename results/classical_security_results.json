@@ -1,0 +1,8 @@
+{
+  "method": "Classical (ECDH + AES-256-GCM)",
+  "handshake_runtime_sec": 0.056452035903930664,
+  "public_key_bytes_exchanged": 194,
+  "plaintext_bytes": 140,
+  "ciphertext_bytes": 156,
+  "round_trip_verified": true
+}
