@@ -13,7 +13,7 @@ PROCESSED_DATA_DIR = DATA_DIR / "processed"
 SAMPLE_DATA_DIR = DATA_DIR / "sample"
 
 ORBITAL_DATA_FILE = DATA_DIR / "orbital_data.csv"
-PROPAGATED_GRID_FILE = PROCESSED_DATA_DIR / "propagated_grid.csv"
+PROPAGATED_GRID_FILE = PROCESSED_DATA_DIR / "propagated_objects.csv"
 CONJUNCTIONS_FILE = PROCESSED_DATA_DIR / "conjunctions.csv"
 
 RESULTS_DIR = PROJECT_ROOT / "results"
