@@ -134,7 +134,7 @@ def propagate_all_now(data, verbose=False):
 
 
 if __name__ == "__main__":
-    import data_loader
+    from modules import data_loader
 
     df = data_loader.load_orbital_data()
     propagate_and_save(df)

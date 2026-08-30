@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 import config
-import orbital_mechanics as om
+from modules import orbital_mechanics as om
 
 
 DARK_LAYOUT = dict(
