@@ -49,15 +49,6 @@ st.markdown("""
 
 @st.cache_data
 def load_all():
-    data = load_all()
-
-    st.write("Project root:", PROJECT_ROOT)
-    st.write("Propagation file:", config.PROPAGATED_GRID_FILE)
-    st.write("Propagation file exists:", config.PROPAGATED_GRID_FILE.exists())
-
-    if data["propagated"] is not None:
-        st.write("Propagation rows:", len(data["propagated"]))
-        st.write("Propagation objects:", data["propagated"]["NORAD_CAT_ID"].nunique())
     data = {}
 
     try:
@@ -75,8 +66,20 @@ def load_all():
         "reentry": config.RESULTS_DIR / "reentry_analysis.csv",
         "geopolitics": config.RESULTS_DIR / "geopolitical_coordination.csv",
     }
-    for key, path in files.items():
-        data[key] = pd.read_csv(path) if path.exists() else None
+    if path.exists():
+        if key == "propagated":
+            data[key] = pd.read_csv(
+                path,
+                usecols=[
+                    "OBJECT_NAME", "OBJECT_ID", "NORAD_CAT_ID", "TIME",
+                    "X_KM", "Y_KM", "Z_KM",
+                    "VX_KM_S", "VY_KM_S", "VZ_KM_S",
+                ]
+            )
+        else:
+            data[key] = pd.read_csv(path)
+    else:
+        data[key] = None
 
     json_files = {
         "classical_security": config.RESULTS_DIR / "classical_security_results.json",
