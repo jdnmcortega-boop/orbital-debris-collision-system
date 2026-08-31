@@ -38,11 +38,23 @@ import config
 # hard_body_radius_km, given nominal separation miss_distance_km, follows
 # a non-central chi-square distribution with 2 degrees of freedom.
 
-def analytic_collision_probability(miss_distance_km, sigma_km=None, hard_body_radius_km=None):
-    sigma_km = sigma_km or getattr(config, "POSITION_UNCERTAINTY_KM", 1.0)
+def analytic_collision_probability(miss_distance_km, sigma_km=None, hard_body_radius_km=None,
+                                     sigma_a_km=None, sigma_b_km=None):
+    """
+    If sigma_a_km/sigma_b_km are given (per-object, e.g. age-scaled via
+    uncertainty_model.py), the combined uncertainty uses them directly.
+    Otherwise falls back to the original symmetric-sigma behavior
+    (sigma_km applied to both objects, combined = sqrt(2)*sigma_km) for
+    backward compatibility with existing callers.
+    """
     hard_body_radius_km = hard_body_radius_km or config.HARD_BODY_RADIUS_KM
 
-    combined_sigma = np.sqrt(2) * sigma_km
+    if sigma_a_km is not None and sigma_b_km is not None:
+        combined_sigma = np.sqrt(sigma_a_km ** 2 + sigma_b_km ** 2)
+    else:
+        sigma_km = sigma_km or getattr(config, "POSITION_UNCERTAINTY_KM", 1.0)
+        combined_sigma = np.sqrt(2) * sigma_km
+
     if combined_sigma <= 0:
         return 0.0
 

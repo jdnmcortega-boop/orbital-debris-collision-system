@@ -27,6 +27,40 @@ def classify_risk(probability):
 
 
 # ============================================================
+# COMPOSITE RISK SCORE (probability x consequence severity)
+# ============================================================
+# Standard risk-management practice: risk = probability x consequence, not
+# probability alone. Two conjunctions with identical Pc are not equally
+# risky if one is a slow graze and the other is a high-speed impact —
+# kinetic energy (and therefore destructive potential / debris generation)
+# scales with velocity squared. This is reported ALONGSIDE the original
+# Pc-only classification, not as a replacement for it, so both are visible
+# and the difference is transparent.
+
+REFERENCE_VELOCITY_KM_S = getattr(config, "REFERENCE_VELOCITY_KM_S", 10.0)  # typical LEO closing speed
+
+
+def severity_factor(relative_velocity_km_s):
+    """Kinetic-energy-based severity multiplier, normalized to ~1.0 at a typical LEO closing speed."""
+    return (relative_velocity_km_s / REFERENCE_VELOCITY_KM_S) ** 2
+
+
+def composite_risk_score(probability, relative_velocity_km_s):
+    return probability * severity_factor(relative_velocity_km_s)
+
+
+def classify_composite_risk(score):
+    # Same threshold convention as classify_risk(), applied to the
+    # composite score rather than raw probability.
+    if score >= RISK_THRESHOLD_HIGH:
+        return "HIGH"
+    elif score >= RISK_THRESHOLD_MEDIUM:
+        return "MEDIUM"
+    else:
+        return "LOW"
+
+
+# ============================================================
 # OPERATOR / COUNTRY LOOKUP
 # ============================================================
 # Public-record operator/country attribution for objects commonly found
@@ -117,6 +151,14 @@ def build_predictions(mc_results_df):
 
     df["RISK_LEVEL"] = df["COLLISION_PROBABILITY_MC"].apply(classify_risk)
 
+    # Composite score: probability x velocity-based severity, reported
+    # ALONGSIDE the original Pc-only risk level, not replacing it.
+    df["COMPOSITE_RISK_SCORE"] = df.apply(
+        lambda r: composite_risk_score(r["COLLISION_PROBABILITY_MC"], r["RELATIVE_VELOCITY_KM_S"]),
+        axis=1,
+    )
+    df["COMPOSITE_RISK_LEVEL"] = df["COMPOSITE_RISK_SCORE"].apply(classify_composite_risk)
+
     country_a, operator_a, country_b, operator_b = [], [], [], []
     for _, row in df.iterrows():
         ca, oa = lookup_operator(row["OBJECT_A"])
@@ -175,8 +217,11 @@ def run_and_save():
     predictions.to_csv(output_path, index=False)
     print(f"Predictions written: {output_path}")
 
-    print("\nRisk level counts:")
+    print("\nRisk level counts (Pc only):")
     print(predictions["RISK_LEVEL"].value_counts().to_string())
+
+    print("\nComposite risk level counts (Pc x velocity severity):")
+    print(predictions["COMPOSITE_RISK_LEVEL"].value_counts().to_string())
 
     warnings = generate_warnings(predictions, min_risk="MEDIUM")
     warnings_path = config.RESULTS_DIR / "warnings.txt"
