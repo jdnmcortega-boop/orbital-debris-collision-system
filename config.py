@@ -25,8 +25,8 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 # their positions are directly comparable for conjunction screening.
 
 GRID_START = datetime.now(timezone.utc)   # swap for a fixed datetime for reproducible runs
-GRID_DURATION_HOURS = 64
-GRID_STEP_MINUTES = 10
+GRID_DURATION_HOURS = 168
+GRID_STEP_MINUTES = 3
 
 # ============================================================
 # CONJUNCTION SCREENING

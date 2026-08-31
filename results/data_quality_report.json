@@ -6,9 +6,9 @@
   "eccentricity_max": 0.10243452,
   "inclination_min": 24.969,
   "inclination_max": 107.9611,
-  "epoch_age_days_min": 0.3054990147222222,
-  "epoch_age_days_max": 134.9589044187037,
-  "epoch_age_days_mean": 4.309318329621914,
+  "epoch_age_days_min": 2.135089164814815,
+  "epoch_age_days_max": 136.7884945687963,
+  "epoch_age_days_mean": 6.138908479714506,
   "debris_count": 30,
   "satellite_count": 30
 }
