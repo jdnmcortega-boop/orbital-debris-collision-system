@@ -44,22 +44,24 @@ def create_satellite(row):
 
 
 def build_time_grid(start=None, duration_hours=None, step_minutes=None):
-    start = start or config.GRID_START
-    duration_hours = duration_hours or config.GRID_DURATION_HOURS
-    step_minutes = step_minutes or config.GRID_STEP_MINUTES
+    start = config.GRID_START if start is None else start
+    duration_hours = config.GRID_DURATION_HOURS if duration_hours is None else duration_hours
+    step_minutes = config.GRID_STEP_MINUTES if step_minutes is None else step_minutes
 
     steps = int((duration_hours * 60) / step_minutes)
     return [start + timedelta(minutes=step_minutes * i) for i in range(steps + 1)]
 
 
 def propagate_row_over_grid(row, times):
-    """Propagate ONE object to every timestamp in `times`. Returns a list of dicts."""
+    """Propagate one object to every timestamp in `times`."""
     satellite = create_satellite(row)
     results = []
 
     for t in times:
-        jd, fr = jday(t.year, t.month, t.day, t.hour, t.minute,
-                       t.second + t.microsecond / 1_000_000)
+        jd, fr = jday(
+            t.year, t.month, t.day, t.hour, t.minute,
+            t.second + t.microsecond / 1_000_000
+        )
 
         error, position, velocity = satellite.sgp4(jd, fr)
 
@@ -70,6 +72,9 @@ def propagate_row_over_grid(row, times):
             "OBJECT_NAME": row["OBJECT_NAME"],
             "OBJECT_ID": row["OBJECT_ID"],
             "NORAD_CAT_ID": row["NORAD_CAT_ID"],
+            "SOURCE_EPOCH": pd.Timestamp(row["EPOCH"]).isoformat(),
+            "FORECAST_START": pd.Timestamp(config.GRID_START).isoformat(),
+            "FORECAST_HORIZON_DAYS": config.FORECAST_HORIZON_DAYS,
             "TIME": t.isoformat(),
             "X_KM": position[0],
             "Y_KM": position[1],
@@ -84,10 +89,10 @@ def propagate_row_over_grid(row, times):
 
 def propagate_all(data, times=None, verbose=True):
     """
-    Propagate every object in `data` across the same shared time grid.
-    Returns (result_df, failed_list).
+    Propagate every selected forecast-input object across the same
+    shared future time grid.
     """
-    times = times or build_time_grid()
+    times = build_time_grid() if times is None else times
 
     all_results = []
     failed = []
@@ -120,17 +125,19 @@ def propagate_and_save(data, output_path=None):
 
     result_df.to_csv(output_path, index=False)
 
-    print(f"\nRows written: {len(result_df)} | Failed objects: {len(failed)}")
+    print(
+        f"\nForecast mode: {config.FORECAST_MODE.upper()}"
+        f" | Start: {config.GRID_START.isoformat()}"
+        f" | Horizon: {config.FORECAST_HORIZON_DAYS} days"
+    )
+    print(f"Rows written: {len(result_df)} | Failed objects: {len(failed)}")
     print(f"Output file: {output_path}")
 
     return result_df, failed
 
 
 def propagate_all_now(data, verbose=False):
-    """
-    Compute every object's position at the REAL current wall-clock time
-    (not the historical grid) — used for live tracking.
-    """
+    """Compute every object's position at the real current UTC time."""
     now = datetime.now(timezone.utc)
     return propagate_all(data, times=[now], verbose=verbose)
 
@@ -138,5 +145,5 @@ def propagate_all_now(data, verbose=False):
 if __name__ == "__main__":
     from modules import data_loader
 
-    df = data_loader.load_orbital_data()
+    df = data_loader.load_forecast_orbital_data()
     propagate_and_save(df)
