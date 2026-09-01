@@ -45,7 +45,7 @@ POSITION_UNCERTAINTY_KM = 10.0
 # MONTE CARLO / COLLISION PROBABILITY (used later)
 # ============================================================
 
-MC_SAMPLES = 10000
+MC_SAMPLES = 1000000
 HARD_BODY_RADIUS_KM = 0.02  # combined radius of both objects, ~20 m default
 
 # ============================================================
@@ -55,3 +55,21 @@ HARD_BODY_RADIUS_KM = 0.02  # combined radius of both objects, ~20 m default
 def ensure_dirs():
     for d in (PROCESSED_DATA_DIR, RESULTS_DIR):
         d.mkdir(parents=True, exist_ok=True)
+
+    # ============================================================
+    # QAE BENCHMARK SETTINGS
+    # ============================================================
+
+
+QAE_BENCHMARK_PROBABILITIES = [
+    0.01,
+    0.05,
+    0.10,
+    0.25,
+    0.50
+]
+
+QAE_BENCHMARK_SAMPLES = 100000
+
+QAE_PROBABILITY_SCALE = 1_000_000.0
+QAE_EVALUATION_QUBITS = 6

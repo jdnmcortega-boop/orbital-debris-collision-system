@@ -140,6 +140,6 @@ def decode_tle_for_validation(line1, line2):
         "arg_perigee": float(line2[34:42]),
         "mean_anomaly": float(line2[43:51]),
         "mean_motion": float(line2[52:63]),
-        "checksum_line1_valid": tle_checksum(line1[:-1]) == int(line1[-1]),
+        "checksum_linefrom modules.tle_formatter import row_to_tle1_valid": tle_checksum(line1[:-1]) == int(line1[-1]),
         "checksum_line2_valid": tle_checksum(line2[:-1]) == int(line2[-1]),
     }

@@ -1,0 +1,11 @@
+launch_date,mission_name,rocket,launch_site,target_altitude_km,inclination_deg,trajectory_source,trajectory_available
+2021-01-24,Transporter-1,Falcon 9,"Cape Canaveral SLC-40, USA",525,97.5,Spaceflight Now,false
+2017-02-15,PSLV-C37 / Cartosat-2D,PSLV-XL,"Satish Dhawan Space Centre, India",506,97.46,ISRO,false
+2008-03-09,ATV-1 Jules Verne,Ariane 5 ES,"Kourou, French Guiana",260,51.6,ESA,false
+2011-02-16,ATV-2 Johannes Kepler,Ariane 5 ES,"Kourou, French Guiana",300,51.6,ESA,false
+2020-02-15,NG-13 / Cygnus,Antares 230+,"Wallops Flight Facility, USA",400,51.6,NASA,false
+2020-06-13,ANDESITE,Electron,"Rocket Lab LC-1, New Zealand",500,51.6,NASA,false
+2020-10-14,Soyuz MS-17,Soyuz-2.1a,"Baikonur, Kazakhstan",400,51.66,Spacefacts / mission data,false
+2012-06-16,Shenzhou-9,Long March 2F,"Jiuquan, China",330,42.8,Spaceflight Now,false
+2017-04-18,OA-7 / Cygnus,Atlas V,"Cape Canaveral, USA",400,51.6,NASA,false
+2012-03-23,ATV-3 Edoardo Amaldi,Ariane 5 ES,"Kourou, French Guiana",300,51.6,ESA,false

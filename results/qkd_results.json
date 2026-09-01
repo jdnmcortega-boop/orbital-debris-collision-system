@@ -1,9 +1,9 @@
 {
   "honest_qber": 0.0,
   "honest_eavesdropping_detected": false,
-  "intercepted_qber": 0.225,
+  "intercepted_qber": 0.24,
   "intercepted_eavesdropping_detected": true,
-  "final_key_length_bits_honest": 136,
+  "final_key_length_bits_honest": 130,
   "qubits_transmitted_honest": 512,
   "qubits_transmitted_intercepted": 1024,
   "message_round_trip_verified": true,

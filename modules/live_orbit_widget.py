@@ -12,8 +12,7 @@ that confirmed-working foundation.
 
 import json
 
-from tle_formatter import row_to_tle
-
+from modules.tle_formatter import row_to_tle
 
 def build_satellite_json(orbital_data_df):
     satellites = []

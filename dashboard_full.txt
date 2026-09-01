@@ -1,0 +1,1130 @@
+﻿"""
+Streamlit Dashboard
+Rocketâ€“Debris Collision Detection and Risk Analysis
+
+Run with:
+
+    streamlit run ui/dashboard.py
+"""
+
+from pathlib import Path
+import sys
+import time
+
+import pandas as pd
+import streamlit as st
+
+
+# ============================================================
+# PROJECT PATH
+# ============================================================
+
+# dashboard.py is inside:
+#
+#     PythonProject3/
+#         ui/
+#             dashboard.py
+#
+# Therefore the project root is one directory above ui/.
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# ============================================================
+# PROJECT IMPORTS
+# ============================================================
+
+import config
+
+from modules import data_loader
+from modules import visualization as viz
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="Orbital Debris Collision System",
+    page_icon="ðŸ›°ï¸",
+    layout="wide",
+)
+
+
+# ============================================================
+# CUSTOM CSS
+# ============================================================
+
+st.markdown(
+    """
+<style>
+
+.stApp {
+    background-color: #0f172a;
+}
+
+.block-container {
+    padding-top: 1.5rem;
+}
+
+h1, h2, h3 {
+    color: #f8fafc;
+}
+
+p, label {
+    color: #cbd5e1;
+}
+
+[data-testid="stMetric"] {
+    background-color: #1e293b;
+    border-radius: 10px;
+    padding: 15px;
+}
+
+[data-testid="stMetricLabel"] {
+    color: #94a3b8;
+}
+
+[data-testid="stMetricValue"] {
+    color: #e2e8f0;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# TITLE
+# ============================================================
+
+st.title("ðŸ›°ï¸ Orbital Debris Collision Detection System")
+
+st.caption(
+    "Rocket trajectory screening, conjunction detection, "
+    "collision-probability estimation, and risk classification."
+)
+
+
+# ============================================================
+# DATA LOADING
+# ============================================================
+
+def safe_read_csv(path):
+    """Safely load a CSV file."""
+
+    if path is None:
+        return None
+
+    path = Path(path)
+
+    if not path.exists():
+        return None
+
+    try:
+        return pd.read_csv(path)
+    except Exception as exc:
+        st.warning(
+            f"Could not load {path.name}: {exc}"
+        )
+        return None
+
+
+def load_all():
+
+    data = {}
+
+    # --------------------------------------------------------
+    # Orbital data
+    # --------------------------------------------------------
+
+    try:
+        data["orbital_data"] = (
+            data_loader.load_orbital_data()
+        )
+    except Exception:
+        data["orbital_data"] = None
+
+    # --------------------------------------------------------
+    # Standard project result files
+    # --------------------------------------------------------
+
+    files = {
+        "propagated": getattr(
+            config,
+            "PROPAGATED_GRID_FILE",
+            PROJECT_ROOT
+            / "data"
+            / "processed"
+            / "propagated_grid.csv",
+        ),
+
+        "conjunctions": getattr(
+            config,
+            "CONJUNCTIONS_FILE",
+            PROJECT_ROOT
+            / "data"
+            / "processed"
+            / "conjunctions.csv",
+        ),
+
+        "predictions": (
+            PROJECT_ROOT
+            / "results"
+            / "predictions.csv"
+        ),
+
+        "false_positive": (
+            PROJECT_ROOT
+            / "results"
+            / "false_positive_analysis.csv"
+        ),
+
+        "qae_comparison": (
+            PROJECT_ROOT
+            / "results"
+            / "qae_comparison.csv"
+        ),
+
+        "qae_sweep": (
+            PROJECT_ROOT
+            / "results"
+            / "qae_accuracy_sweep.csv"
+        ),
+
+        "reentry": (
+            PROJECT_ROOT
+            / "results"
+            / "reentry_analysis.csv"
+        ),
+
+        "geopolitics": (
+            PROJECT_ROOT
+            / "results"
+            / "geopolitical_coordination.csv"
+        ),
+
+        # ----------------------------------------------------
+        # Rocket/debris collision output
+        # ----------------------------------------------------
+
+        "rocket_collision": (
+            PROJECT_ROOT
+            / "data"
+            / "processed"
+            / "rocket_debris_conjunctions.csv"
+        ),
+    }
+
+    for key, path in files.items():
+
+        data[key] = safe_read_csv(path)
+
+    return data
+
+
+data = load_all()
+
+
+# ============================================================
+# HEADER METRICS
+# ============================================================
+
+rocket_collision = data["rocket_collision"]
+
+if rocket_collision is not None and not rocket_collision.empty:
+
+    total_rocket_events = len(
+        rocket_collision
+    )
+
+    collision_risk_count = int(
+        (
+            rocket_collision["RISK_LEVEL"]
+            == "CRITICAL"
+        ).sum()
+    )
+
+    high_risk_count = int(
+        (
+            rocket_collision["RISK_LEVEL"]
+            == "HIGH"
+        ).sum()
+    )
+
+    medium_risk_count = int(
+        (
+            rocket_collision["RISK_LEVEL"]
+            == "MEDIUM"
+        ).sum()
+    )
+
+    low_risk_count = int(
+        (
+            rocket_collision["RISK_LEVEL"]
+            == "LOW"
+        ).sum()
+    )
+
+else:
+
+    total_rocket_events = 0
+    collision_risk_count = 0
+    high_risk_count = 0
+    medium_risk_count = 0
+    low_risk_count = 0
+
+
+col1, col2, col3, col4 = st.columns(4)
+
+col1.metric(
+    "Rocket Scenarios",
+    total_rocket_events,
+)
+
+col2.metric(
+    "Critical",
+    collision_risk_count,
+)
+
+col3.metric(
+    "High Risk",
+    high_risk_count,
+)
+
+col4.metric(
+    "Medium Risk",
+    medium_risk_count,
+)
+
+
+# ============================================================
+# TABS
+# ============================================================
+
+tabs = st.tabs(
+    [
+        "ðŸ›°ï¸ Overview",
+        "ðŸŒ Orbital Tracking",
+        "âš ï¸ Conjunctions",
+        "ðŸš€ Rocket Collision",
+        "ðŸ“Š Risk & Predictions",
+        "ðŸ” Quantum Security",
+        "ðŸŒ Geopolitics",
+    ]
+)
+
+
+# ============================================================
+# TAB 1 â€” OVERVIEW
+# ============================================================
+
+with tabs[0]:
+
+    st.header(
+        "Orbital Debris Collision Monitoring"
+    )
+
+    st.write(
+        """
+        This dashboard combines orbital-object propagation,
+        conjunction screening, collision-probability estimation,
+        Monte Carlo uncertainty analysis, and risk classification.
+        """
+    )
+
+    st.subheader(
+        "Pipeline"
+    )
+
+    st.markdown(
+        """
+        **Orbital Data**
+        â†’ **SGP4 Propagation**
+        â†’ **Conjunction Detection**
+        â†’ **Relative Motion**
+        â†’ **Monte Carlo Collision Probability**
+        â†’ **Risk Classification**
+        â†’ **Quantum / Classical Optimization**
+        """
+    )
+
+    st.subheader(
+        "System Status"
+    )
+
+    status_items = {
+        "Propagated orbital data":
+            data["propagated"] is not None,
+
+        "Conjunction data":
+            data["conjunctions"] is not None,
+
+        "Prediction data":
+            data["predictions"] is not None,
+
+        "Rocket collision analysis":
+            data["rocket_collision"] is not None,
+
+        "QAE comparison":
+            data["qae_comparison"] is not None,
+
+        "Geopolitical analysis":
+            data["geopolitics"] is not None,
+    }
+
+    for name, status in status_items.items():
+
+        if status:
+            st.success(
+                f"âœ“ {name}: available"
+            )
+        else:
+            st.warning(
+                f"âš  {name}: not available"
+            )
+
+
+# ============================================================
+# TAB 2 â€” ORBITAL TRACKING
+# ============================================================
+
+with tabs[1]:
+
+    st.header(
+        "Orbital Object Tracking"
+    )
+
+    orbital_data = data["orbital_data"]
+
+    propagated = data["propagated"]
+
+    if propagated is not None and not propagated.empty:
+
+        col1, col2, col3 = st.columns(3)
+
+        if "NORAD_CAT_ID" in propagated.columns:
+
+            object_count = (
+                propagated["NORAD_CAT_ID"]
+                .nunique()
+            )
+
+        else:
+
+            object_count = 0
+
+        col1.metric(
+            "Tracked Objects",
+            object_count,
+        )
+
+        col2.metric(
+            "Propagated States",
+            f"{len(propagated):,}",
+        )
+
+        if "TIME" in propagated.columns:
+
+            col3.metric(
+                "Time Samples",
+                propagated["TIME"].nunique(),
+            )
+
+        st.subheader(
+            "Propagated Orbital Data"
+        )
+
+        st.dataframe(
+            propagated.head(500),
+            width="stretch",
+        )
+
+    elif orbital_data is not None:
+
+        st.subheader(
+            "Loaded Orbital Data"
+        )
+
+        try:
+
+            st.dataframe(
+                orbital_data,
+                width="stretch",
+            )
+
+        except Exception:
+
+            st.write(
+                orbital_data
+            )
+
+    else:
+
+        st.warning(
+            "No orbital data is currently available."
+        )
+
+
+# ============================================================
+# TAB 3 â€” CONJUNCTIONS
+# ============================================================
+
+with tabs[2]:
+
+    st.header(
+        "Conjunction Detection"
+    )
+
+    conjunctions = data["conjunctions"]
+
+    if conjunctions is None or conjunctions.empty:
+
+        st.warning(
+            "No conjunction data found. "
+            "Run conjunction_detection.py first."
+        )
+
+    else:
+
+        st.subheader(
+            f"{len(conjunctions):,} Screened Conjunctions"
+        )
+
+        # ----------------------------------------------------
+        # Basic statistics
+        # ----------------------------------------------------
+
+        if "MISS_DISTANCE_KM" in conjunctions.columns:
+
+            minimum_distance = (
+                conjunctions[
+                    "MISS_DISTANCE_KM"
+                ]
+                .min()
+            )
+
+            st.metric(
+                "Closest Miss Distance",
+                f"{minimum_distance:.6f} km",
+            )
+
+        # ----------------------------------------------------
+        # Visualization
+        # ----------------------------------------------------
+
+        try:
+
+            st.plotly_chart(
+                viz.miss_distance_scatter(
+                    conjunctions
+                ),
+                width="stretch",
+            )
+
+        except Exception as exc:
+
+            st.info(
+                f"Conjunction visualization unavailable: {exc}"
+            )
+
+        st.dataframe(
+            conjunctions,
+            width="stretch",
+        )
+
+
+# ============================================================
+# TAB 4 â€” ROCKET COLLISION
+# ============================================================
+
+with tabs[3]:
+
+    st.header(
+        "ðŸš€ Rocketâ€“Debris Collision Analysis"
+    )
+
+    st.write(
+        """
+        This section displays the controlled validation
+        scenarios used to verify that the collision-analysis
+        pipeline distinguishes LOW, MEDIUM, HIGH, and CRITICAL
+        conditions.
+        """
+    )
+
+    if (
+        rocket_collision is None
+        or rocket_collision.empty
+    ):
+
+        st.warning(
+            "No rocket collision results found."
+        )
+
+        st.info(
+            "Run:"
+        )
+
+        st.code(
+            "python -m modules.rocket_debris_collision",
+            language="powershell",
+        )
+
+    else:
+
+        # ----------------------------------------------------
+        # Risk counts
+        # ----------------------------------------------------
+
+        counts = (
+            rocket_collision[
+                "RISK_LEVEL"
+            ]
+            .value_counts()
+        )
+
+        low = int(
+            counts.get("LOW", 0)
+        )
+
+        medium = int(
+            counts.get("MEDIUM", 0)
+        )
+
+        high = int(
+            counts.get("HIGH", 0)
+        )
+
+        critical = int(
+            counts.get("CRITICAL", 0)
+        )
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
+            "LOW",
+            low,
+        )
+
+        c2.metric(
+            "MEDIUM",
+            medium,
+        )
+
+        c3.metric(
+            "HIGH",
+            high,
+        )
+
+        c4.metric(
+            "CRITICAL",
+            critical,
+        )
+
+        # ----------------------------------------------------
+        # Validation status
+        # ----------------------------------------------------
+
+        expected = {
+            "CONTROL_SAFE": "LOW",
+            "CONTROL_CONJUNCTION": "MEDIUM",
+            "CONTROL_HIGH_RISK": "HIGH",
+            "CONTROL_COLLISION": "CRITICAL",
+        }
+
+        if (
+            "SCENARIO_TYPE" in rocket_collision.columns
+            and "RISK_LEVEL" in rocket_collision.columns
+        ):
+
+            validation_passed = True
+
+            for scenario, expected_level in expected.items():
+
+                matching = rocket_collision[
+                    rocket_collision[
+                        "SCENARIO_TYPE"
+                    ]
+                    == scenario
+                ]
+
+                if matching.empty:
+
+                    validation_passed = False
+                    break
+
+                actual_level = str(
+                    matching.iloc[0][
+                        "RISK_LEVEL"
+                    ]
+                )
+
+                if actual_level != expected_level:
+
+                    validation_passed = False
+                    break
+
+            if validation_passed:
+
+                st.success(
+                    "âœ“ CONTROLLED VALIDATION PASSED"
+                )
+
+            else:
+
+                st.error(
+                    "âœ— CONTROLLED VALIDATION FAILED"
+                )
+
+        # ----------------------------------------------------
+        # Risk distribution chart
+        # ----------------------------------------------------
+
+        chart_df = pd.DataFrame(
+            {
+                "Risk Level": [
+                    "LOW",
+                    "MEDIUM",
+                    "HIGH",
+                    "CRITICAL",
+                ],
+                "Count": [
+                    low,
+                    medium,
+                    high,
+                    critical,
+                ],
+            }
+        )
+
+        st.bar_chart(
+            chart_df.set_index(
+                "Risk Level"
+            )
+        )
+
+        # ----------------------------------------------------
+        # Collision probability
+        # ----------------------------------------------------
+
+        if "COLLISION_PROBABILITY" in rocket_collision.columns:
+
+            st.subheader(
+                "Collision Probability"
+            )
+
+            probability_df = rocket_collision[
+                [
+                    "ROCKET",
+                    "COLLISION_PROBABILITY",
+                ]
+            ].copy()
+
+            probability_df = (
+                probability_df
+                .set_index("ROCKET")
+            )
+
+            st.bar_chart(
+                probability_df
+            )
+
+        # ----------------------------------------------------
+        # Detailed results
+        # ----------------------------------------------------
+
+        st.subheader(
+            "Scenario Results"
+        )
+
+        display_columns = [
+            "ROCKET",
+            "SCENARIO_TYPE",
+            "OBJECT_NAME",
+            "CONTROLLED_OFFSET_KM",
+            "MISS_DISTANCE_KM",
+            "RELATIVE_VELOCITY_KM_S",
+            "CONJUNCTION",
+            "COLLISION_PROBABILITY",
+            "COLLISION_COUNT",
+            "RISK_LEVEL",
+        ]
+
+        available_columns = [
+            column
+            for column in display_columns
+            if column in rocket_collision.columns
+        ]
+
+        st.dataframe(
+            rocket_collision[
+                available_columns
+            ],
+            width="stretch",
+        )
+
+        # ----------------------------------------------------
+        # Detailed selected event
+        # ----------------------------------------------------
+
+        st.subheader(
+            "Closest Approach"
+        )
+
+        closest = rocket_collision.iloc[0]
+
+        c1, c2, c3 = st.columns(3)
+
+        c1.metric(
+            "Rocket",
+            str(
+                closest.get(
+                    "ROCKET",
+                    "N/A",
+                )
+            ),
+        )
+
+        c2.metric(
+            "Object",
+            str(
+                closest.get(
+                    "OBJECT_NAME",
+                    "N/A",
+                )
+            ),
+        )
+
+        c3.metric(
+            "Risk",
+            str(
+                closest.get(
+                    "RISK_LEVEL",
+                    "N/A",
+                )
+            ),
+        )
+
+        st.write(
+            f"**Miss distance:** "
+            f"{closest.get('MISS_DISTANCE_KM', float('nan')):.6f} km"
+        )
+
+        st.write(
+            f"**Collision probability:** "
+            f"{closest.get('COLLISION_PROBABILITY', float('nan')):.8f}"
+        )
+
+        st.write(
+            f"**Collision samples:** "
+            f"{closest.get('COLLISION_COUNT', 0)} / "
+            f"{closest.get('MONTE_CARLO_SAMPLES', 0)}"
+        )
+
+        st.write(
+            f"**Relative velocity:** "
+            f"{closest.get('RELATIVE_VELOCITY_KM_S', float('nan')):.6f} km/s"
+        )
+
+        st.write(
+            f"**TCA:** "
+            f"{closest.get('TCA', 'N/A')}"
+        )
+
+        # ----------------------------------------------------
+        # Methodology
+        # ----------------------------------------------------
+
+        with st.expander(
+            "Collision-analysis methodology"
+        ):
+
+            st.markdown(
+                """
+                **Conjunction threshold:** 68 km
+
+                **Physical collision radius:** 0.01 km
+                (10 m)
+
+                **Controlled uncertainty:** 0.001 km
+                (1 m)
+
+                **Monte Carlo samples:** 10,000
+
+                Collision probability is estimated as:
+
+                `Pc = collision samples / total Monte Carlo samples`
+
+                The controlled validation scenarios are designed
+                to test four classifications:
+
+                - **LOW** â€” safe separation
+                - **MEDIUM** â€” conjunction
+                - **HIGH** â€” high-risk close approach
+                - **CRITICAL** â€” collision condition
+                """
+            )
+
+
+# ============================================================
+# TAB 5 â€” RISK & PREDICTIONS
+# ============================================================
+
+with tabs[4]:
+
+    st.header(
+        "Risk & Predictions"
+    )
+
+    predictions_df = data["predictions"]
+
+    if predictions_df is None or predictions_df.empty:
+
+        st.warning(
+            "No prediction results found."
+        )
+
+        st.info(
+            "Run monte_carlo.py followed by prediction.py."
+        )
+
+    else:
+
+        # ----------------------------------------------------
+        # Determine risk column
+        # ----------------------------------------------------
+
+        if (
+            "COMPOSITE_RISK_LEVEL"
+            in predictions_df.columns
+        ):
+
+            risk_column = (
+                "COMPOSITE_RISK_LEVEL"
+            )
+
+        elif (
+            "RISK_LEVEL"
+            in predictions_df.columns
+        ):
+
+            risk_column = "RISK_LEVEL"
+
+        else:
+
+            risk_column = None
+
+        if risk_column is not None:
+
+            counts = (
+                predictions_df[
+                    risk_column
+                ]
+                .value_counts()
+            )
+
+            low = int(
+                counts.get("LOW", 0)
+            )
+
+            medium = int(
+                counts.get("MEDIUM", 0)
+            )
+
+            high = int(
+                counts.get("HIGH", 0)
+            )
+
+            critical = int(
+                counts.get("CRITICAL", 0)
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric(
+                "LOW risk",
+                low,
+            )
+
+            c2.metric(
+                "MEDIUM risk",
+                medium,
+            )
+
+            c3.metric(
+                "HIGH risk",
+                high,
+            )
+
+            c4.metric(
+                "CRITICAL",
+                critical,
+            )
+
+            try:
+
+                st.plotly_chart(
+                    viz.risk_level_bar(
+                        predictions_df,
+                        risk_column=risk_column,
+                    ),
+                    width="stretch",
+                )
+
+            except Exception:
+
+                chart_df = pd.DataFrame(
+                    {
+                        "Risk Level": [
+                            "LOW",
+                            "MEDIUM",
+                            "HIGH",
+                            "CRITICAL",
+                        ],
+                        "Count": [
+                            low,
+                            medium,
+                            high,
+                            critical,
+                        ],
+                    }
+                )
+
+                st.bar_chart(
+                    chart_df.set_index(
+                        "Risk Level"
+                    )
+                )
+
+        st.dataframe(
+            predictions_df,
+            width="stretch",
+        )
+
+        # ----------------------------------------------------
+        # False positives
+        # ----------------------------------------------------
+
+        false_positive = (
+            data["false_positive"]
+        )
+
+        if (
+            false_positive is not None
+            and not false_positive.empty
+        ):
+
+            st.subheader(
+                "False-Positive Analysis"
+            )
+
+            st.dataframe(
+                false_positive,
+                width="stretch",
+            )
+
+
+# ============================================================
+# TAB 6 â€” QUANTUM SECURITY
+# ============================================================
+
+with tabs[5]:
+
+    st.header(
+        "ðŸ” Quantum / Classical Security"
+    )
+
+    qae = data["qae_comparison"]
+    qae_sweep = data["qae_sweep"]
+
+    st.subheader(
+        "QAE vs Classical Monte Carlo"
+    )
+
+    if qae is not None and not qae.empty:
+
+        st.dataframe(
+            qae,
+            width="stretch",
+        )
+
+    else:
+
+        st.info(
+            "No QAE comparison results found."
+        )
+
+    if qae_sweep is not None and not qae_sweep.empty:
+
+        st.subheader(
+            "QAE Accuracy Sweep"
+        )
+
+        st.dataframe(
+            qae_sweep,
+            width="stretch",
+        )
+
+    # --------------------------------------------------------
+    # Classical security
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Quantum Key Distribution"
+    )
+
+    st.write(
+        """
+        The security layer is designed to protect the exchange
+        of sensitive orbital and collision-risk information
+        between participating systems.
+        """
+    )
+
+
+# ============================================================
+# TAB 7 â€” GEOPOLITICS
+# ============================================================
+
+with tabs[6]:
+
+    st.header(
+        "ðŸŒ Geopolitical Coordination"
+    )
+
+    geopolitics = data["geopolitics"]
+
+    if (
+        geopolitics is None
+        or geopolitics.empty
+    ):
+
+        st.info(
+            "No geopolitical coordination results found."
+        )
+
+    else:
+
+        st.dataframe(
+            geopolitics,
+            width="stretch",
+        )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "Orbital Debris Collision Detection System | "
+    "Research Prototype"
+)
+
+
