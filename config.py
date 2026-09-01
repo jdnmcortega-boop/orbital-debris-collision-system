@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timezone
+import os
 
 # ============================================================
 # PATHS
@@ -19,17 +20,42 @@ CONJUNCTIONS_FILE = PROCESSED_DATA_DIR / "conjunctions.csv"
 RESULTS_DIR = PROJECT_ROOT / "results"
 
 # ============================================================
-# TIME GRID SETTINGS
+# FORECAST SETTINGS
 # ============================================================
-# All objects are propagated to the SAME future timestamps so
-# their positions can be compared directly for conjunction
-# screening.
 #
-# The forecasting horizon is now 30 days rather than the old
-# 7-day window (168 hours).
+# LIVE mode:
+#   Use the latest available orbital record for each NORAD object
+#   and forecast forward from the current UTC time.
+#
+# BACKTEST mode:
+#   Use only orbital records whose EPOCH is at or before the explicit
+#   historical cutoff. The forecast starts at that cutoff and runs
+#   forward for 30 days. This prevents future information from
+#   leaking into a historical forecast.
+#
+# Set with environment variables when needed:
+#   $env:FORECAST_MODE="backtest"
+#   $env:FORECAST_START_UTC="2026-08-25T00:00:00Z"
+#
+
+FORECAST_MODE = os.getenv("FORECAST_MODE", "live").strip().lower()
 
 FORECAST_HORIZON_DAYS = 30
-GRID_START = datetime.now(timezone.utc)
+
+_forecast_start_text = os.getenv("FORECAST_START_UTC", "").strip()
+
+if FORECAST_MODE == "backtest":
+    if not _forecast_start_text:
+        raise ValueError(
+            "FORECAST_START_UTC must be set when FORECAST_MODE=backtest. "
+            "Example: 2026-08-25T00:00:00Z"
+        )
+    GRID_START = datetime.fromisoformat(
+        _forecast_start_text.replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
+else:
+    GRID_START = datetime.now(timezone.utc)
+
 GRID_DURATION_HOURS = FORECAST_HORIZON_DAYS * 24
 GRID_STEP_MINUTES = 3
 
@@ -38,12 +64,10 @@ GRID_STEP_MINUTES = 3
 # ============================================================
 
 SCREENING_DISTANCE_KM = 68.0
-
-# 1-sigma isotropic position uncertainty per object, per axis.
 POSITION_UNCERTAINTY_KM = 10.0
 
 # ============================================================
-# MONTE CARLO / COLLISION PROBABILITY (used later)
+# MONTE CARLO / COLLISION PROBABILITY
 # ============================================================
 
 MC_SAMPLES = 1000000
@@ -71,6 +95,5 @@ QAE_BENCHMARK_PROBABILITIES = [
 ]
 
 QAE_BENCHMARK_SAMPLES = 100000
-
 QAE_PROBABILITY_SCALE = 1_000_000.0
 QAE_EVALUATION_QUBITS = 6
