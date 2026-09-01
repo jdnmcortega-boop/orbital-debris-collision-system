@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 import config
-from modules.prediction import composite_risk_score
+from modules.prediction import composite_risk_score, classify_composite_risk
 from modules.qae import analytic_collision_probability, run_qae
 
 
@@ -48,6 +48,7 @@ def adaptive_qae_qubits(
 
 
 def required_columns():
+    """Columns that must be present in the live MC result."""
     return [
         "OBJECT_A",
         "OBJECT_B",
@@ -65,8 +66,9 @@ def required_columns():
         "COLLISION_PROBABILITY_MC",
         "MC_CI_LOW",
         "MC_CI_HIGH",
-        "COMPOSITE_RISK_SCORE",
-        "COMPOSITE_RISK_LEVEL",
+        "MC_SAMPLES",
+        "MC_EFFECTIVE_SAMPLE_SIZE",
+        "MC_METHOD",
     ]
 
 
@@ -86,22 +88,30 @@ def build_live_qae_comparison(
 
     df = mc_results.copy()
 
-    # Ensure the priority order is deterministic even if prediction.py has
-    # not yet been run. Prefer its composite score when present.
-    if "COMPOSITE_RISK_SCORE" not in df.columns:
-        df["COMPOSITE_RISK_SCORE"] = df.apply(
-            lambda row: composite_risk_score(
-                probability=row["COLLISION_PROBABILITY_MC"],
-                relative_velocity_km_s=row["RELATIVE_VELOCITY_KM_S"],
-                miss_distance_km=row["MISS_DISTANCE_KM"],
-                sigma_a_km=row["SIGMA_A_KM"],
-                sigma_b_km=row["SIGMA_B_KM"],
-                altitude_difference_km=row["ALTITUDE_DIFFERENCE_KM"],
-                inclination_difference_deg=row["INCLINATION_DIFFERENCE_DEG"],
-            ),
-            axis=1,
-        )
+    # Calculate the same composite-priority score used by prediction.py.
+    df["COMPOSITE_RISK_SCORE"] = df.apply(
+        lambda row: composite_risk_score(
+            probability=row["COLLISION_PROBABILITY_MC"],
+            relative_velocity_km_s=row["RELATIVE_VELOCITY_KM_S"],
+            miss_distance_km=row["MISS_DISTANCE_KM"],
+            sigma_a_km=row["SIGMA_A_KM"],
+            sigma_b_km=row["SIGMA_B_KM"],
+            altitude_difference_km=row["ALTITUDE_DIFFERENCE_KM"],
+            inclination_difference_deg=row["INCLINATION_DIFFERENCE_DEG"],
+        ),
+        axis=1,
+    )
 
+    df["COMPOSITE_RISK_LEVEL"] = df.apply(
+        lambda row: classify_composite_risk(
+            row["COMPOSITE_RISK_SCORE"],
+            row["MISS_DISTANCE_KM"],
+            row["ALTITUDE_DIFFERENCE_KM"],
+        ),
+        axis=1,
+    )
+
+    # Highest-priority events are the first candidates for the quantum stage.
     ordered = df.sort_values(
         ["COMPOSITE_RISK_SCORE", "DAYS_TO_TCA"],
         ascending=[False, True],
@@ -178,7 +188,7 @@ def build_live_qae_comparison(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run QAE on the prioritized live 30-day forecast conjunctions"
+        description="Run QAE on prioritized live 30-day forecast conjunctions"
     )
     parser.add_argument(
         "--input",
@@ -202,7 +212,7 @@ def main():
         "--limit",
         type=int,
         default=20,
-        help="Number of highest-priority conjunctions to evaluate; 0 means all",
+        help="Highest-priority conjunctions to evaluate; 0 means all",
     )
     args = parser.parse_args()
 
