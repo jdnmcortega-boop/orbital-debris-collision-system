@@ -8,18 +8,48 @@ import config
 
 def find_conjunctions(propagated_df, screening_distance_km=None):
     """
-    Take the shared-grid propagation output and return a DataFrame of
-    object pairs whose closest approach is under the screening distance.
-    """
-    screening_distance_km = screening_distance_km or config.SCREENING_DISTANCE_KM
+    Take the shared-grid propagation output and return future
+    conjunctions whose closest approach is within the screening
+    distance during the configured forecast horizon.
 
-    object_ids = propagated_df["NORAD_CAT_ID"].unique()
+    The propagation grid is expected to begin at the current
+    forecast epoch and extend for FORECAST_HORIZON_DAYS. For each
+    object pair, the closest sampled approach is retained.
+    """
+    if screening_distance_km is None:
+        screening_distance_km = config.SCREENING_DISTANCE_KM
+
+    if propagated_df is None or propagated_df.empty:
+        return pd.DataFrame(columns=[
+            "OBJECT_A", "NORAD_A", "OBJECT_B", "NORAD_B",
+            "TCA", "DAYS_TO_TCA", "FORECAST_HORIZON_DAYS",
+            "FORECAST_STATUS", "MISS_DISTANCE_KM",
+            "RELATIVE_VELOCITY_KM_S",
+        ])
+
+    required_columns = {
+        "NORAD_CAT_ID", "OBJECT_NAME", "TIME",
+        "X_KM", "Y_KM", "Z_KM",
+        "VX_KM_S", "VY_KM_S", "VZ_KM_S",
+    }
+    missing = required_columns - set(propagated_df.columns)
+    if missing:
+        raise ValueError(
+            f"Propagated data is missing required columns: {sorted(missing)}"
+        )
+
+    df = propagated_df.copy()
+    df["TIME"] = pd.to_datetime(df["TIME"], utc=True)
+    df = df.sort_values(["NORAD_CAT_ID", "TIME"])
+
+    object_ids = df["NORAD_CAT_ID"].dropna().unique()
     n_pairs = len(object_ids) * (len(object_ids) - 1) // 2
     print(f"Objects: {len(object_ids)} | Candidate pairs: {n_pairs}")
+    print(f"Forecast horizon: {config.FORECAST_HORIZON_DAYS} days")
 
     by_object = {
         norad: g.set_index("TIME").sort_index()
-        for norad, g in propagated_df.groupby("NORAD_CAT_ID")
+        for norad, g in df.groupby("NORAD_CAT_ID")
     }
 
     results = []
@@ -35,41 +65,61 @@ def find_conjunctions(propagated_df, screening_distance_km=None):
         a = a_full.loc[common_times]
         b = b_full.loc[common_times]
 
-        dx = a["X_KM"].values - b["X_KM"].values
-        dy = a["Y_KM"].values - b["Y_KM"].values
-        dz = a["Z_KM"].values - b["Z_KM"].values
+        dx = a["X_KM"].to_numpy() - b["X_KM"].to_numpy()
+        dy = a["Y_KM"].to_numpy() - b["Y_KM"].to_numpy()
+        dz = a["Z_KM"].to_numpy() - b["Z_KM"].to_numpy()
         distances = np.sqrt(dx**2 + dy**2 + dz**2)
 
-        min_idx = np.argmin(distances)
-        min_distance = distances[min_idx]
+        min_idx = int(np.argmin(distances))
+        min_distance = float(distances[min_idx])
 
         if min_distance > screening_distance_km:
             continue
 
-        tca = common_times[min_idx]
+        tca = pd.Timestamp(common_times[min_idx])
 
-        dvx = a["VX_KM_S"].values[min_idx] - b["VX_KM_S"].values[min_idx]
-        dvy = a["VY_KM_S"].values[min_idx] - b["VY_KM_S"].values[min_idx]
-        dvz = a["VZ_KM_S"].values[min_idx] - b["VZ_KM_S"].values[min_idx]
-        relative_velocity = np.sqrt(dvx**2 + dvy**2 + dvz**2)
+        # The forecast epoch is the earliest shared timestamp for this
+        # pair. Since all objects use the same propagation grid, this is
+        # normally the same timestamp for every pair.
+        forecast_start = pd.Timestamp(common_times[0])
+        days_to_tca = max(
+            (tca - forecast_start).total_seconds() / 86400.0,
+            0.0,
+        )
+
+        dvx = float(a["VX_KM_S"].to_numpy()[min_idx] - b["VX_KM_S"].to_numpy()[min_idx])
+        dvy = float(a["VY_KM_S"].to_numpy()[min_idx] - b["VY_KM_S"].to_numpy()[min_idx])
+        dvz = float(a["VZ_KM_S"].to_numpy()[min_idx] - b["VZ_KM_S"].to_numpy()[min_idx])
+        relative_velocity = float(np.sqrt(dvx**2 + dvy**2 + dvz**2))
 
         results.append({
             "OBJECT_A": a["OBJECT_NAME"].iloc[0],
             "NORAD_A": norad_a,
             "OBJECT_B": b["OBJECT_NAME"].iloc[0],
             "NORAD_B": norad_b,
-            "TCA": tca,
+            "TCA": tca.isoformat(),
+            "DAYS_TO_TCA": round(days_to_tca, 4),
+            "FORECAST_HORIZON_DAYS": config.FORECAST_HORIZON_DAYS,
+            "FORECAST_STATUS": "FORECASTED_CONJUNCTION",
             "MISS_DISTANCE_KM": min_distance,
             "RELATIVE_VELOCITY_KM_S": relative_velocity,
         })
 
-    if not results:
-        return pd.DataFrame(columns=[
-            "OBJECT_A", "NORAD_A", "OBJECT_B", "NORAD_B",
-            "TCA", "MISS_DISTANCE_KM", "RELATIVE_VELOCITY_KM_S",
-        ])
+    columns = [
+        "OBJECT_A", "NORAD_A", "OBJECT_B", "NORAD_B",
+        "TCA", "DAYS_TO_TCA", "FORECAST_HORIZON_DAYS",
+        "FORECAST_STATUS", "MISS_DISTANCE_KM",
+        "RELATIVE_VELOCITY_KM_S",
+    ]
 
-    return pd.DataFrame(results).sort_values("MISS_DISTANCE_KM").reset_index(drop=True)
+    if not results:
+        return pd.DataFrame(columns=columns)
+
+    return (
+        pd.DataFrame(results, columns=columns)
+        .sort_values(["DAYS_TO_TCA", "MISS_DISTANCE_KM"])
+        .reset_index(drop=True)
+    )
 
 
 def detect_and_save(propagated_df=None, output_path=None):
@@ -77,16 +127,22 @@ def detect_and_save(propagated_df=None, output_path=None):
     config.ensure_dirs()
 
     if propagated_df is None:
-        propagated_df = pd.read_csv(config.PROPAGATED_GRID_FILE, parse_dates=["TIME"])
+        propagated_df = pd.read_csv(
+            config.PROPAGATED_GRID_FILE,
+            parse_dates=["TIME"],
+        )
 
     conjunctions = find_conjunctions(propagated_df)
     conjunctions.to_csv(output_path, index=False)
 
-    print(f"\nConjunctions found (< {config.SCREENING_DISTANCE_KM} km): {len(conjunctions)}")
+    print(
+        f"\n30-day forecast conjunctions found "
+        f"(< {config.SCREENING_DISTANCE_KM} km): {len(conjunctions)}"
+    )
     print(f"Output file: {output_path}")
 
     if len(conjunctions) > 0:
-        print("\nClosest approaches:")
+        print("\nForecasted closest approaches:")
         print(conjunctions.head(10).to_string(index=False))
 
     return conjunctions
