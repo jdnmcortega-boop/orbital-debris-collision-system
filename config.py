@@ -21,11 +21,16 @@ RESULTS_DIR = PROJECT_ROOT / "results"
 # ============================================================
 # TIME GRID SETTINGS
 # ============================================================
-# All objects are propagated to this SAME set of timestamps so
-# their positions are directly comparable for conjunction screening.
+# All objects are propagated to the SAME future timestamps so
+# their positions can be compared directly for conjunction
+# screening.
+#
+# The forecasting horizon is now 30 days rather than the old
+# 7-day window (168 hours).
 
-GRID_START = datetime.now(timezone.utc)   # swap for a fixed datetime for reproducible runs
-GRID_DURATION_HOURS = 168
+FORECAST_HORIZON_DAYS = 30
+GRID_START = datetime.now(timezone.utc)
+GRID_DURATION_HOURS = FORECAST_HORIZON_DAYS * 24
 GRID_STEP_MINUTES = 3
 
 # ============================================================
@@ -34,11 +39,7 @@ GRID_STEP_MINUTES = 3
 
 SCREENING_DISTANCE_KM = 68.0
 
-# 1-sigma isotropic position uncertainty per object, per axis. TLE-derived
-# uncertainty grows substantially the longer you propagate without a fresh
-# update — commonly several to tens of km after a week, especially
-# along-track. 1 km is unrealistically tight for 7-day-old propagation and
-# makes every analytic/QAE probability underflow to exactly 0.0.
+# 1-sigma isotropic position uncertainty per object, per axis.
 POSITION_UNCERTAINTY_KM = 10.0
 
 # ============================================================
@@ -46,7 +47,7 @@ POSITION_UNCERTAINTY_KM = 10.0
 # ============================================================
 
 MC_SAMPLES = 1000000
-HARD_BODY_RADIUS_KM = 0.02  # combined radius of both objects, ~20 m default
+HARD_BODY_RADIUS_KM = 0.02
 
 # ============================================================
 # ENSURE OUTPUT FOLDERS EXIST
@@ -56,10 +57,10 @@ def ensure_dirs():
     for d in (PROCESSED_DATA_DIR, RESULTS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
-    # ============================================================
-    # QAE BENCHMARK SETTINGS
-    # ============================================================
 
+# ============================================================
+# QAE BENCHMARK SETTINGS
+# ============================================================
 
 QAE_BENCHMARK_PROBABILITIES = [
     0.01,
