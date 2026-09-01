@@ -78,7 +78,7 @@ def build_live_qae_comparison(
     shots: int = 200,
     limit: int = 20,
 ) -> pd.DataFrame:
-    """Run QAE on the prioritized live conjunctions."""
+    """Run QAE on the prioritized live 30-day forecast conjunctions."""
     missing = [c for c in required_columns() if c not in mc_results.columns]
     if missing:
         raise ValueError(
@@ -173,6 +173,7 @@ def build_live_qae_comparison(
                 "QAE_ORACLE_CALLS": qae["oracle_calls"],
                 "QAE_RUNTIME_SEC": qae["runtime_sec"],
                 "MC_ESTIMATE": mc_estimate,
+                "MC_ERROR": abs(mc_estimate - analytic_p),
                 "MC_ERROR_VS_ANALYTIC": abs(mc_estimate - analytic_p),
                 "MC_SAMPLES": int(row["MC_SAMPLES"]),
                 "MC_EFFECTIVE_SAMPLE_SIZE": float(row["MC_EFFECTIVE_SAMPLE_SIZE"]),
@@ -200,7 +201,13 @@ def main():
         "--output",
         type=Path,
         default=config.RESULTS_DIR / "live_qae_comparison.csv",
-        help="Output comparison CSV",
+        help="Primary QAE comparison output",
+    )
+    parser.add_argument(
+        "--dashboard-output",
+        type=Path,
+        default=config.RESULTS_DIR / "qae_comparison.csv",
+        help="Dashboard-compatible QAE comparison output",
     )
     parser.add_argument(
         "--qae-eval-qubits",
@@ -234,8 +241,18 @@ def main():
     args.output.parent.mkdir(parents=True, exist_ok=True)
     result.to_csv(args.output, index=False)
 
+    # Keep the existing dashboard source synchronized with the current live
+    # 30-day QAE experiment. This does not alter the underlying estimator;
+    # it simply exposes the latest live comparison through the dashboard's
+    # established qae_comparison.csv input.
+    if args.dashboard_output.resolve() != args.output.resolve():
+        args.dashboard_output.parent.mkdir(parents=True, exist_ok=True)
+        result.to_csv(args.dashboard_output, index=False)
+
     print(f"Live QAE comparison rows: {len(result)}")
     print(f"Output: {args.output}")
+    if args.dashboard_output.resolve() != args.output.resolve():
+        print(f"Dashboard QAE output: {args.dashboard_output}")
 
     if result.empty:
         print("No live conjunctions were available for QAE evaluation.")
