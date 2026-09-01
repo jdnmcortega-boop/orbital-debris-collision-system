@@ -64,7 +64,6 @@ def propagate_row_over_grid(row, times):
         error, position, velocity = satellite.sgp4(jd, fr)
 
         if error != 0:
-            # Skip rather than abort — some TLEs fail outside a valid window
             continue
 
         results.append({
@@ -85,8 +84,8 @@ def propagate_row_over_grid(row, times):
 
 def propagate_all(data, times=None, verbose=True):
     """
-    Propagate every object in `data` (a DataFrame from data_loader)
-    across the same shared time grid. Returns (result_df, failed_list).
+    Propagate every object in `data` across the same shared time grid.
+    Returns (result_df, failed_list).
     """
     times = times or build_time_grid()
 
@@ -115,11 +114,6 @@ def propagate_and_save(data, output_path=None):
 
     result_df, failed = propagate_all(data)
 
-    # Round to 4 decimal places (~0.1 m precision for position, ~0.1 mm/s
-    # for velocity) — SGP4 itself isn't accurate to more than a few meters,
-    # so this cuts CSV file size substantially with no meaningful loss of
-    # information. Purely a storage optimization for GitHub's file-size
-    # limits, not a scientific downgrade.
     for col in ["X_KM", "Y_KM", "Z_KM", "VX_KM_S", "VY_KM_S", "VZ_KM_S"]:
         if col in result_df.columns:
             result_df[col] = result_df[col].round(4)
@@ -135,16 +129,14 @@ def propagate_and_save(data, output_path=None):
 def propagate_all_now(data, verbose=False):
     """
     Compute every object's position at the REAL current wall-clock time
-    (not the historical grid) — used for live tracking. Reuses propagate_all
-    with a single timestamp, so it's a real fresh SGP4 propagation each call,
-    not an interpolation or animation trick.
+    (not the historical grid) — used for live tracking.
     """
     now = datetime.now(timezone.utc)
     return propagate_all(data, times=[now], verbose=verbose)
 
 
 if __name__ == "__main__":
-    import data_loader
+    from modules import data_loader
 
     df = data_loader.load_orbital_data()
     propagate_and_save(df)
