@@ -11,12 +11,19 @@ Provides:
 The physical collision probability is calculated classically and then
 encoded into a quantum amplitude. QAE estimates that amplitude using
 a simulated quantum circuit.
+
+The QAE readout uses a maximum-likelihood estimator over the exact
+quantum-phase-estimation measurement model. This replaces the previous
+"weighted average of encoded amplitudes" readout, which is biased for
+very small probabilities.
 """
 
+import math
 import time
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize_scalar
 from scipy.stats import ncx2
 
 from qiskit import (
@@ -119,7 +126,6 @@ def build_oracle():
 # ============================================================
 
 def build_grover_operator(theta):
-
     A = build_state_preparation(theta)
     oracle = build_oracle()
 
@@ -127,6 +133,149 @@ def build_grover_operator(theta):
         oracle=oracle,
         state_preparation=A,
         reflection_qubits=[0],
+    )
+
+
+# ============================================================
+# EXACT QPE MEASUREMENT MODEL
+# ============================================================
+
+def _qpe_phase_distribution(phi, num_eval_qubits):
+    """Return the ideal QPE outcome probabilities for phase ``phi``.
+
+    For the Grover operator used by amplitude estimation, the initial state
+    is an equal superposition of the two eigenphases +2*theta and -2*theta.
+    With phi = theta/pi, the two corresponding normalized QPE phases are
+    ``phi`` and ``1 - phi``.
+
+    The probability for a single QPE outcome y is the exact finite-register
+    Dirichlet-kernel expression. ``np.sinc`` is used for numerical stability
+    near zero.
+    """
+    m = int(num_eval_qubits)
+    if m < 1:
+        raise ValueError("num_eval_qubits must be >= 1")
+
+    M = 2 ** m
+    y = np.arange(M, dtype=float)
+
+    def one_phase_probability(phase):
+        delta = phase - y / M
+        # sin(pi*M*delta)/(M*sin(pi*delta))
+        # = sinc(M*delta) / sinc(delta)
+        numerator = np.sinc(M * delta)
+        denominator = np.sinc(delta)
+        values = np.divide(
+            numerator,
+            denominator,
+            out=np.zeros_like(numerator),
+            where=np.abs(denominator) > 1e-15,
+        )
+        return values ** 2
+
+    distribution = 0.5 * (
+        one_phase_probability(phi)
+        + one_phase_probability(1.0 - phi)
+    )
+
+    total = float(np.sum(distribution))
+    if total <= 0.0:
+        raise RuntimeError("Invalid QPE probability distribution")
+
+    return distribution / total
+
+
+def _qae_counts_log_likelihood(phi, counts, num_eval_qubits):
+    """Compute the multinomial log-likelihood for a QPE phase candidate."""
+    probabilities = _qpe_phase_distribution(
+        phi,
+        num_eval_qubits,
+    )
+
+    # Counts are stored by the measured binary string.
+    likelihood = 0.0
+    floor = 1e-300
+
+    for bitstring, count in counts.items():
+        y = int(bitstring, 2)
+        if y >= len(probabilities):
+            return -np.inf
+        likelihood += int(count) * math.log(
+            max(float(probabilities[y]), floor)
+        )
+
+    return float(likelihood)
+
+
+def _qae_mle_phase(counts, num_eval_qubits):
+    """Estimate the Grover phase using maximum likelihood.
+
+    A logarithmic low-phase search is included because orbital collision
+    probabilities often live around 1e-12 to 1e-6, where a purely uniform
+    coarse grid would waste almost all of its resolution.
+    """
+    m = int(num_eval_qubits)
+
+    # Build a search grid concentrated near zero while retaining full-range
+    # coverage. The finite QPE register makes this cheap enough for the small
+    # evaluation registers used in this project.
+    low = np.geomspace(
+        1e-10,
+        0.01,
+        600,
+    )
+    linear = np.linspace(
+        0.0,
+        0.5,
+        1200,
+    )
+    candidates = np.unique(
+        np.clip(
+            np.concatenate(([0.0], low, linear)),
+            0.0,
+            0.5,
+        )
+    )
+
+    log_likelihoods = np.array([
+        _qae_counts_log_likelihood(phi, counts, m)
+        for phi in candidates
+    ])
+
+    best_index = int(np.argmax(log_likelihoods))
+    best_phi = float(candidates[best_index])
+    best_log_likelihood = float(log_likelihoods[best_index])
+
+    # Refine the best candidate locally when it is not already at a boundary.
+    left_index = max(0, best_index - 1)
+    right_index = min(len(candidates) - 1, best_index + 1)
+
+    left = float(candidates[left_index])
+    right = float(candidates[right_index])
+
+    if right > left:
+        result = minimize_scalar(
+            lambda value: -_qae_counts_log_likelihood(
+                float(value),
+                counts,
+                m,
+            ),
+            bounds=(left, right),
+            method="bounded",
+            options={"xatol": 1e-12},
+        )
+
+        if result.success:
+            refined_phi = float(
+                np.clip(result.x, 0.0, 0.5)
+            )
+            refined_log_likelihood = float(-result.fun)
+
+            if refined_log_likelihood >= best_log_likelihood:
+                best_phi = refined_phi
+
+    return float(
+        np.clip(best_phi, 0.0, 0.5)
     )
 
 
@@ -148,7 +297,6 @@ def run_qae(
 
     where m is the number of evaluation qubits.
     """
-
     true_probability = float(
         np.clip(
             true_probability,
@@ -161,14 +309,9 @@ def run_qae(
     shots = int(shots)
 
     if m < 1:
-        raise ValueError(
-            "num_eval_qubits must be >= 1."
-        )
-
+        raise ValueError("num_eval_qubits must be >= 1.")
     if shots < 1:
-        raise ValueError(
-            "shots must be >= 1."
-        )
+        raise ValueError("shots must be >= 1.")
 
     # p = sin²(theta / 2)
     theta = (
@@ -179,25 +322,13 @@ def run_qae(
     )
 
     A = build_state_preparation(theta)
-
     grover_op = build_grover_operator(theta)
     Q_gate = grover_op.to_gate()
     Q_gate.name = "Q"
 
-    eval_reg = QuantumRegister(
-        m,
-        name="eval",
-    )
-
-    state_reg = QuantumRegister(
-        1,
-        name="state",
-    )
-
-    creg = ClassicalRegister(
-        m,
-        name="c",
-    )
+    eval_reg = QuantumRegister(m, name="eval")
+    state_reg = QuantumRegister(1, name="state")
+    creg = ClassicalRegister(m, name="c")
 
     qc = QuantumCircuit(
         eval_reg,
@@ -205,18 +336,14 @@ def run_qae(
         creg,
     )
 
-    # Prepare amplitude state
     qc.append(
         A.to_gate(),
         [state_reg[0]],
     )
 
-    # Evaluation register
     qc.h(eval_reg)
 
-    # Controlled powers of Q
     for k in range(m):
-
         controlled_Q = (
             Q_gate
             .power(2 ** k)
@@ -231,7 +358,6 @@ def run_qae(
             ],
         )
 
-    # Inverse QFT
     qc.append(
         QFTGate(m).inverse(),
         eval_reg,
@@ -243,11 +369,7 @@ def run_qae(
     )
 
     simulator = AerSimulator()
-
-    transpiled = transpile(
-        qc,
-        simulator,
-    )
+    transpiled = transpile(qc, simulator)
 
     start = time.time()
 
@@ -257,55 +379,33 @@ def run_qae(
     ).result()
 
     runtime = time.time() - start
-
     counts = result.get_counts()
+    total_shots = sum(counts.values())
 
-    total_shots = sum(
-        counts.values()
+    if total_shots <= 0:
+        raise RuntimeError("QAE circuit returned zero measurement shots")
+
+    mle_phi = _qae_mle_phase(
+        counts,
+        num_eval_qubits=m,
     )
 
-    weighted_estimate = 0.0
+    # phi = theta/pi and p = sin²(theta/2)
+    mle_theta = np.pi * mle_phi
+    estimate = np.sin(mle_theta / 2.0) ** 2
 
-    if total_shots > 0:
-
-        for bitstring, count in counts.items():
-
-            y = int(
-                bitstring,
-                2,
-            )
-
-            amplitude_estimate = (
-                np.sin(
-                    np.pi *
-                    y /
-                    (2 ** m)
-                ) ** 2
-            )
-
-            weighted_estimate += (
-                amplitude_estimate *
-                count /
-                total_shots
-            )
-
-    weighted_estimate = float(
+    estimate = float(
         np.clip(
-            weighted_estimate,
+            estimate,
             0.0,
             1.0,
         )
     )
 
     error = abs(
-        weighted_estimate -
+        estimate -
         true_probability
     )
-
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # This is the actual matched QAE query budget.
-    # --------------------------------------------------------
 
     oracle_calls = (
         shots *
@@ -314,18 +414,54 @@ def run_qae(
 
     return {
         "true_probability": true_probability,
-        "qae_estimate": weighted_estimate,
+        "qae_estimate": estimate,
         "qae_error": float(error),
         "oracle_calls": int(oracle_calls),
         "runtime_sec": float(runtime),
         "eval_qubits": int(m),
         "shots": int(shots),
+        "estimator": "QPE_MLE",
+        "measurement_outcomes": int(len(counts)),
     }
 
 
 # ============================================================
 # MONTE CARLO
 # ============================================================
+
+def _wilson_interval(hits, n_samples, z=1.96):
+    """Wilson confidence interval for a Bernoulli probability estimate."""
+    n = int(n_samples)
+    x = int(hits)
+
+    if n <= 0:
+        raise ValueError("n_samples must be positive")
+
+    phat = x / n
+    z2 = z ** 2
+    denominator = 1.0 + z2 / n
+    center = (
+        phat +
+        z2 / (2.0 * n)
+    ) / denominator
+    margin = (
+        z *
+        np.sqrt(
+            (
+                phat * (1.0 - phat) /
+                n
+            )
+            +
+            z2 / (4.0 * n ** 2)
+        ) /
+        denominator
+    )
+
+    return (
+        float(max(0.0, center - margin)),
+        float(min(1.0, center + margin)),
+    )
+
 
 def run_classical_mc(
     true_probability,
@@ -351,9 +487,11 @@ def run_classical_mc(
 
     start = time.time()
 
-    hits = rng.binomial(
-        n_samples,
-        true_probability,
+    hits = int(
+        rng.binomial(
+            n_samples,
+            true_probability,
+        )
     )
 
     runtime = time.time() - start
@@ -365,12 +503,20 @@ def run_classical_mc(
         true_probability
     )
 
+    ci_low, ci_high = _wilson_interval(
+        hits,
+        n_samples,
+    )
+
     return {
         "true_probability": true_probability,
         "mc_estimate": float(estimate),
         "mc_error": float(error),
         "n_samples": int(n_samples),
         "runtime_sec": float(runtime),
+        "hits": int(hits),
+        "ci_low": ci_low,
+        "ci_high": ci_high,
     }
 
 
@@ -385,7 +531,6 @@ def compare_methods(
     num_eval_qubits=6,
     shots=200,
 ):
-
     true_p = analytic_collision_probability(
         miss_distance_km,
         sigma_km,
@@ -398,7 +543,6 @@ def compare_methods(
         shots=shots,
     )
 
-    # EXACT SAME QUERY BUDGET
     mc_result = run_classical_mc(
         true_p,
         n_samples=qae_result["oracle_calls"],
@@ -407,30 +551,19 @@ def compare_methods(
     return {
         "MISS_DISTANCE_KM": miss_distance_km,
         "ANALYTIC_PC": true_p,
-
-        "QAE_ESTIMATE":
-            qae_result["qae_estimate"],
-
-        "QAE_ERROR":
-            qae_result["qae_error"],
-
-        "QAE_ORACLE_CALLS":
-            qae_result["oracle_calls"],
-
-        "QAE_RUNTIME_SEC":
-            qae_result["runtime_sec"],
-
-        "MC_ESTIMATE":
-            mc_result["mc_estimate"],
-
-        "MC_ERROR":
-            mc_result["mc_error"],
-
-        "MC_SAMPLES":
-            mc_result["n_samples"],
-
-        "MC_RUNTIME_SEC":
-            mc_result["runtime_sec"],
+        "QAE_ESTIMATE": qae_result["qae_estimate"],
+        "QAE_ERROR": qae_result["qae_error"],
+        "QAE_ORACLE_CALLS": qae_result["oracle_calls"],
+        "QAE_RUNTIME_SEC": qae_result["runtime_sec"],
+        "QAE_EVAL_QUBITS": qae_result["eval_qubits"],
+        "QAE_ESTIMATOR": qae_result["estimator"],
+        "MC_ESTIMATE": mc_result["mc_estimate"],
+        "MC_ERROR": mc_result["mc_error"],
+        "MC_SAMPLES": mc_result["n_samples"],
+        "MC_RUNTIME_SEC": mc_result["runtime_sec"],
+        "MC_HITS": mc_result["hits"],
+        "MC_CI_LOW": mc_result["ci_low"],
+        "MC_CI_HIGH": mc_result["ci_high"],
     }
 
 
@@ -442,37 +575,26 @@ def run_and_save(
     num_eval_qubits=6,
     shots=200,
 ):
-
     config.ensure_dirs()
 
     conj_path = config.CONJUNCTIONS_FILE
 
     if not conj_path.exists():
-
         print(
             f"No conjunctions file found at "
-            f"{conj_path}. "
-            f"Run conjunction_detection first."
+            f"{conj_path}. Run conjunction_detection first."
         )
-
         return None
 
-    conjunctions = pd.read_csv(
-        conj_path
-    )
+    conjunctions = pd.read_csv(conj_path)
 
     if conjunctions.empty:
-
-        print(
-            "Conjunctions file is empty."
-        )
-
+        print("Conjunctions file is empty.")
         return None
 
     rows = []
 
     for _, row in conjunctions.iterrows():
-
         result = compare_methods(
             row["MISS_DISTANCE_KM"],
             num_eval_qubits=num_eval_qubits,
@@ -511,6 +633,9 @@ def run_and_save(
                 "QAE_ERROR",
                 "MC_ESTIMATE",
                 "MC_ERROR",
+                "MC_HITS",
+                "MC_CI_LOW",
+                "MC_CI_HIGH",
                 "QAE_ORACLE_CALLS",
                 "MC_SAMPLES",
             ]
@@ -530,7 +655,6 @@ def run_accuracy_sweep(
     shots=100,
     n_trials=10,
 ):
-
     if probabilities is None:
         probabilities = [
             0.500,
@@ -557,9 +681,7 @@ def run_accuracy_sweep(
     rows = []
 
     for probability in probabilities:
-
         for m in eval_qubits:
-
             qae_errors = []
             mc_errors = []
 
@@ -569,7 +691,6 @@ def run_accuracy_sweep(
             )
 
             for trial in range(n_trials):
-
                 qae = run_qae(
                     probability,
                     num_eval_qubits=m,
@@ -600,27 +721,13 @@ def run_accuracy_sweep(
 
             rows.append(
                 {
-                    "TRUE_PROBABILITY":
-                        probability,
-
-                    "EVAL_QUBITS":
-                        m,
-
-                    "ORACLE_CALLS":
-                        oracle_calls,
-
-                    "N_TRIALS":
-                        n_trials,
-
-                    "QAE_ERROR_MEAN":
-                        qae_error_mean,
-
-                    "MC_ERROR_MEAN":
-                        mc_error_mean,
-
-                    "QAE_WINS":
-                        qae_error_mean <
-                        mc_error_mean,
+                    "TRUE_PROBABILITY": probability,
+                    "EVAL_QUBITS": m,
+                    "ORACLE_CALLS": oracle_calls,
+                    "N_TRIALS": n_trials,
+                    "QAE_ERROR_MEAN": qae_error_mean,
+                    "MC_ERROR_MEAN": mc_error_mean,
+                    "QAE_WINS": qae_error_mean < mc_error_mean,
                 }
             )
 
@@ -649,7 +756,5 @@ def run_accuracy_sweep(
 # ============================================================
 
 if __name__ == "__main__":
-
     run_and_save()
-
     run_accuracy_sweep()
