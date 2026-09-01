@@ -12,10 +12,11 @@ For each daily snapshot from T-30 days through T-0:
 4. Find the predicted closest approach from that information state.
 5. Calculate the model collision probability.
 6. Estimate the same probability with QAE and matched-budget Monte Carlo.
-7. Keep probability risk separate from a geometry/proximity forecast alert.
+7. Keep deterministic probability risk separate from MC sampling noise.
+8. Keep geometry/proximity forecasting separate from probability risk.
 
-The proximity alert is a forecasting/prioritization signal, not a claim that
-collision probability is high. Probability thresholds remain unchanged.
+The historical event time is used only as the evaluation boundary. The
+known event state is never used to construct the forecast.
 """
 
 from __future__ import annotations
@@ -90,7 +91,6 @@ def forecast_closest_approach(
 
         current += step
 
-    # Always test the exact event boundary when it is not aligned to the step.
     if current - step != end_time:
         pos_a, vel_a = propagate_satellite(sat_a, end_time)
         pos_b, vel_b = propagate_satellite(sat_b, end_time)
@@ -106,11 +106,7 @@ def forecast_closest_approach(
 
 
 def forecast_proximity_alert_level(miss_distance_km: float) -> str:
-    """Classify forecast proximity separately from collision probability.
-
-    This is a geometry-based warning signal for prioritization. It is not a
-    collision-probability classification and does not alter probability risk.
-    """
+    """Classify forecast proximity separately from collision probability."""
     distance = abs(float(miss_distance_km))
 
     if distance <= 10.0:
@@ -125,13 +121,7 @@ def adaptive_qae_qubits(
     requested_qubits: int,
     max_qubits: int = 14,
 ) -> int:
-    """Choose enough QAE evaluation qubits to resolve very small amplitudes.
-
-    The QAE circuit's phase grid has a first non-zero amplitude value of
-    approximately sin(pi / 2**m)^2. This helper increases m until the supplied
-    model probability is above that first-bin scale, subject to a practical
-    upper bound. It does not change the physical probability model.
-    """
+    """Choose enough QAE evaluation qubits to resolve very small amplitudes."""
     probability = float(np.clip(probability, 0.0, 1.0))
     m = max(1, int(requested_qubits))
     max_qubits = max(m, int(max_qubits))
@@ -218,8 +208,6 @@ def run_historical_validation(
             shots=qae_shots,
         )
 
-        # Matched-budget classical baseline: same number of oracle-equivalent
-        # samples as the selected QAE configuration.
         mc = run_classical_mc(
             analytic_pc,
             n_samples=qae["oracle_calls"],
@@ -235,6 +223,9 @@ def run_historical_validation(
         analytic_risk = classify_risk(analytic_pc)
         mc_risk = classify_risk(mc["mc_estimate"])
 
+        # Operational probability risk is deliberately based on the analytic
+        # model probability, not a single noisy rare-event MC realization.
+        # MC remains a matched-budget validation benchmark.
         rows.append(
             {
                 "EVENT_ID": event.event_id,
@@ -255,6 +246,7 @@ def run_historical_validation(
                 "ANALYTIC_RISK_LEVEL": analytic_risk,
                 "QAE_EVAL_QUBITS_REQUESTED": int(qae_eval_qubits),
                 "QAE_EVAL_QUBITS_USED": int(effective_qae_qubits),
+                "QAE_ESTIMATOR": qae["estimator"],
                 "QAE_ESTIMATE": qae["qae_estimate"],
                 "QAE_ERROR": qae["qae_error"],
                 "QAE_ORACLE_CALLS": qae["oracle_calls"],
@@ -262,10 +254,14 @@ def run_historical_validation(
                 "MC_ESTIMATE": mc["mc_estimate"],
                 "MC_ERROR": mc["mc_error"],
                 "MC_SAMPLES": mc["n_samples"],
+                "MC_HITS": mc["hits"],
+                "MC_CI_LOW": mc["ci_low"],
+                "MC_CI_HIGH": mc["ci_high"],
                 "MC_RUNTIME_SEC": mc["runtime_sec"],
                 "MC_RISK_LEVEL": mc_risk,
-                # Backward-compatible name used by older dashboard/code.
-                "RISK_LEVEL": mc_risk,
+                # Operational/backward-compatible risk is deterministic
+                # analytic probability risk, not MC sampling noise.
+                "RISK_LEVEL": analytic_risk,
                 "ACTUAL_EVENT_TIME": event.event_time_utc.isoformat(),
                 "ACTUAL_EVENT": int(snapshot == event.event_time_utc),
             }
@@ -275,11 +271,10 @@ def run_historical_validation(
 
     output = pd.DataFrame(rows)
 
-    # Earlier/highest-lead-time occurrence of each alert type.
     high_alert = output[output["FORECAST_PROXIMITY_ALERT_LEVEL"] == "HIGH"]
     medium_alert = output[output["FORECAST_PROXIMITY_ALERT_LEVEL"] == "MEDIUM"]
-    high_probability = output[output["MC_RISK_LEVEL"] == "HIGH"]
-    medium_probability = output[output["MC_RISK_LEVEL"] == "MEDIUM"]
+    high_probability = output[output["ANALYTIC_RISK_LEVEL"] == "HIGH"]
+    medium_probability = output[output["ANALYTIC_RISK_LEVEL"] == "MEDIUM"]
 
     output.attrs["first_high_forecast_alert_days"] = (
         float(high_alert["DAYS_BEFORE_EVENT"].max()) if not high_alert.empty else None
@@ -366,18 +361,27 @@ def main():
         ].to_string(index=False)
     )
 
-    first_high_alert = result.attrs.get("first_high_forecast_alert_days")
-    first_medium_alert = result.attrs.get("first_medium_forecast_alert_days")
-    first_high_probability = result.attrs.get("first_high_probability_warning_days")
-    first_medium_probability = result.attrs.get("first_medium_probability_warning_days")
-    upgrades = result.attrs.get("qae_qubit_upgrades", 0)
-
     print()
-    print(f"First HIGH forecast-proximity alert lead time: {first_high_alert} days")
-    print(f"First MEDIUM forecast-proximity alert lead time: {first_medium_alert} days")
-    print(f"First HIGH probability warning lead time (MC): {first_high_probability} days")
-    print(f"First MEDIUM probability warning lead time (MC): {first_medium_probability} days")
-    print(f"QAE qubit upgrades for small probabilities: {upgrades}")
+    print(
+        "First HIGH forecast-proximity alert lead time: "
+        f"{result.attrs.get('first_high_forecast_alert_days')} days"
+    )
+    print(
+        "First MEDIUM forecast-proximity alert lead time: "
+        f"{result.attrs.get('first_medium_forecast_alert_days')} days"
+    )
+    print(
+        "First HIGH probability warning lead time (analytic): "
+        f"{result.attrs.get('first_high_probability_warning_days')} days"
+    )
+    print(
+        "First MEDIUM probability warning lead time (analytic): "
+        f"{result.attrs.get('first_medium_probability_warning_days')} days"
+    )
+    print(
+        "QAE qubit upgrades for small probabilities: "
+        f"{result.attrs.get('qae_qubit_upgrades', 0)}"
+    )
 
 
 if __name__ == "__main__":
