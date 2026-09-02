@@ -114,6 +114,13 @@ def format_probability(value):
     return f"{value:.3e}"
 
 
+def format_warning_level(value):
+    """Return a readable warning level without changing the underlying result."""
+    if value is None or pd.isna(value):
+        return "—"
+    return str(value).strip().upper()
+
+
 def build_historical_event(row) -> HistoricalValidationEvent:
     return HistoricalValidationEvent(
         event_id=str(row["event_id"]),
@@ -345,6 +352,39 @@ def render_historical_tab():
     c3.metric("First HIGH probability", format_days(high_probability["DAYS_BEFORE_EVENT"].max() if not high_probability.empty else None))
     c4.metric("Actual collision", str(row["event_time_utc"]).replace("T", " ").replace("Z", " UTC"))
 
+    st.subheader("Two warning channels")
+    st.caption(
+        "The historical predictor reports geometric proximity and modeled collision probability "
+        "as separate warning channels. A HIGH proximity alert does not automatically mean HIGH "
+        "collision probability. Both values are shown so the replay can be interpreted correctly."
+    )
+
+    channel_a, channel_b = st.columns(2)
+    with channel_a:
+        st.markdown("### 📏 Channel 1 — Proximity warning")
+        st.metric(
+            "Current proximity alert",
+            format_warning_level(selected_row["FORECAST_PROXIMITY_ALERT_LEVEL"])
+            if "selected_row" in locals()
+            else "—",
+        )
+        st.caption(
+            "Geometric screening channel based on the forecast closest-approach distance. "
+            "It answers: **How close are the objects expected to pass?**"
+        )
+    with channel_b:
+        st.markdown("### 🎯 Channel 2 — Collision probability")
+        st.metric(
+            "Current probability risk",
+            format_warning_level(selected_row["ANALYTIC_RISK_LEVEL"])
+            if "selected_row" in locals()
+            else "—",
+        )
+        st.caption(
+            "Probability channel from the analytic collision-probability model. "
+            "It answers: **Given the modeled uncertainty, how likely is collision?**"
+        )
+
     selected_day = st.slider(
         "Replay timeline — select historical prediction state",
         min_value=float(result["DAYS_BEFORE_EVENT"].min()),
@@ -355,13 +395,49 @@ def render_historical_tab():
     closest = result.iloc[(result["DAYS_BEFORE_EVENT"] - selected_day).abs().argsort()[:1]]
     selected_row = closest.iloc[0]
 
+    # Re-render the channel summary after the timeline selection so the displayed
+    # warning levels always correspond to the selected historical state.
+    channel_a, channel_b = st.columns(2)
+    with channel_a:
+        st.markdown("### 📏 Proximity warning")
+        st.metric(
+            "Alert level",
+            format_warning_level(selected_row.get("FORECAST_PROXIMITY_ALERT_LEVEL")),
+        )
+        if "FORECAST_MISS_DISTANCE_KM" in selected_row.index:
+            st.metric(
+                "Forecast miss distance",
+                f"{float(selected_row['FORECAST_MISS_DISTANCE_KM']):.6f} km",
+            )
+        st.caption("Geometric screening: forecast closest-approach distance.")
+
+    with channel_b:
+        st.markdown("### 🎯 Collision probability")
+        st.metric(
+            "Probability risk",
+            format_warning_level(selected_row.get("ANALYTIC_RISK_LEVEL")),
+        )
+        st.metric(
+            "Analytic P(collision)",
+            format_probability(selected_row.get("ANALYTIC_PC")),
+        )
+        st.caption("Probabilistic model: collision likelihood under the configured uncertainty assumptions.")
+
+    st.info(
+        f"At the selected replay state (T-{float(selected_row['DAYS_BEFORE_EVENT']):.1f} d), "
+        f"the proximity channel is **{format_warning_level(selected_row.get('FORECAST_PROXIMITY_ALERT_LEVEL'))}** "
+        f"while the probability channel is **{format_warning_level(selected_row.get('ANALYTIC_RISK_LEVEL'))}** "
+        f"with P(collision) = **{format_probability(selected_row.get('ANALYTIC_PC'))}**. "
+        "These channels are intentionally not collapsed into one label."
+    )
+
     st.plotly_chart(historical_replay_figure(result, selected_day), width="stretch")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Replay state", f"T-{selected_row['DAYS_BEFORE_EVENT']:.1f} d")
     c2.metric("Forecast TCA", str(selected_row["FORECAST_TCA"]).replace("T", " ").replace("Z", " UTC"))
     c3.metric("Forecast miss", f"{float(selected_row['FORECAST_MISS_DISTANCE_KM']):.6f} km")
-    c4.metric("Forecast risk", str(selected_row["ANALYTIC_RISK_LEVEL"]))
+    c4.metric("Probability P(collision)", format_probability(selected_row.get("ANALYTIC_PC")))
 
     st.subheader("QAE vs Monte Carlo — historical validation")
     st.plotly_chart(qae_mc_figure(result), width="stretch")
