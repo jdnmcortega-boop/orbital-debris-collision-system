@@ -62,6 +62,61 @@ Secure warning communication
         ↓
 Classical security vs QKD simulation
 
+## Dashboard: PAST vs PRESENT
+
+Run the main dashboard with:
+
+```text
+streamlit run ui/dashboard.py
+```
+
+The dashboard now has two intentionally separate modes:
+
+### PAST — Historical Replay / Validation
+
+Uses confirmed historical collision events and archived TLE/3LE data. At
+each replay timestamp, only an element set with epoch at or before that
+timestamp may be used. The known collision is retained only as ground
+truth for evaluation.
+
+The historical experiment provides:
+
+- 30-day rewind before the collision
+- SGP4 historical propagation
+- Forecast closest approach
+- Relative velocity
+- Collision probability
+- QAE estimate
+- Matched-budget Monte Carlo estimate
+- Risk classification
+- Replay timeline
+- Warning lead-time measurement
+- Comparison against the actual historical event
+
+The current repository contains an archived Iridium 33 / Cosmos 2251
+experiment under:
+
+```text
+data/historical_events/iridium33_cosmos2251/historical_tles.3le
+```
+
+### PRESENT — Live 30-Day Forecast
+
+Uses the current orbital dataset in `data/orbital_data.csv` and the
+existing current-data SGP4/conjunction/prediction pipeline. Historical
+collision outcomes are not fed into this predictor.
+
+The live mode provides:
+
+- Current orbital objects
+- Current SGP4 propagation
+- Current conjunction screening
+- Existing 30-day prediction results
+- Current HIGH/CRITICAL forecast rows
+
+The historical and live modes must remain separate: historical data is
+for validation, while current orbital data is for present-day forecasting.
+
 ## Current Limitations
 
 This software is a research prototype and is not an operational
