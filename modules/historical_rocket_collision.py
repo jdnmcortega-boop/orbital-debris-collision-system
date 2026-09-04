@@ -5,20 +5,15 @@ from the live predictor. It calculates quantities that can be reproduced from
 published event data and, when state vectors are available, derives relative
 position and velocity directly.
 
-Input CSV columns supported by the batch calculator:
-    EVENT_ID,DATE_UTC,TARGET_NAME,TARGET_TYPE,TARGET_NORAD_ID,
-    PROJECTILE_NAME,PROJECTILE_TYPE,PROJECTILE_NORAD_ID,ALTITUDE_KM,
-    TARGET_MASS_KG,PROJECTILE_MASS_KG,RELATIVE_VELOCITY_KM_S,
-    NOTES,SOURCE
-
-The calculator does not invent missing historical measurements. Missing values
-remain NaN and are reported as unavailable.
+Important data-integrity rule: unknown historical quantities are left missing.
+A debris radar cross-section (RCS) is not treated as a mass estimate, and a
+reported approximate relative speed is not converted into a false exact value.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -56,8 +51,6 @@ def relative_state(
     dv = v_p - v_t
     distance_km = float(np.linalg.norm(dr))
     relative_speed_km_s = float(np.linalg.norm(dv))
-
-    # Positive closing speed means the objects are moving toward one another.
     closing_speed_km_s = float(-np.dot(dr, dv) / distance_km) if distance_km > 0 else 0.0
 
     return {
@@ -71,11 +64,11 @@ def relative_state(
 
 
 def collision_energy(projectile_mass_kg: float, relative_velocity_km_s: float) -> dict:
-    """Calculate projectile kinetic energy and useful normalized measures.
+    """Calculate projectile kinetic energy when both inputs are known.
 
-    This is a simple physics calculation, not a fragmentation model. The
-    projectile kinetic energy is 0.5*m*v^2. Fragment counts should not be
-    inferred from this function alone.
+    This is a physics calculation, not a fragmentation model. RCS cannot be
+    substituted for mass. If the historical source does not report projectile
+    mass, the caller should leave the energy fields unavailable.
     """
     mass = float(projectile_mass_kg)
     speed_m_s = float(relative_velocity_km_s) * 1000.0
@@ -92,21 +85,37 @@ def collision_energy(projectile_mass_kg: float, relative_velocity_km_s: float) -
 
 
 def add_calculated_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Add reproducible derived quantities to historical event rows."""
+    """Add reproducible derived quantities without inventing missing data."""
     out = df.copy()
 
     for column in REQUIRED_COLUMNS:
         if column not in out.columns:
             out[column] = np.nan
 
+    # Numeric normalization. Unknown values remain NaN.
+    numeric_columns = [
+        "ALTITUDE_KM",
+        "TARGET_MASS_KG",
+        "PROJECTILE_MASS_KG",
+        "DEBRIS_RCS_CM2",
+        "RELATIVE_VELOCITY_KM_S",
+        "CATALOGUED_FRAGMENTS",
+    ]
+    for column in numeric_columns:
+        if column in out.columns:
+            out[column] = pd.to_numeric(out[column], errors="coerce")
+
     def energy_row(row):
+        mass = row.get("PROJECTILE_MASS_KG", np.nan)
+        speed = row.get("RELATIVE_VELOCITY_KM_S", np.nan)
+        if pd.isna(mass) or pd.isna(speed):
+            return pd.Series({
+                "IMPACT_ENERGY_J": np.nan,
+                "IMPACT_ENERGY_MJ": np.nan,
+                "IMPACT_ENERGY_GJ": np.nan,
+            })
         try:
-            return pd.Series(
-                collision_energy(
-                    row["PROJECTILE_MASS_KG"],
-                    row["RELATIVE_VELOCITY_KM_S"],
-                )
-            )
+            return pd.Series(collision_energy(mass, speed))
         except (TypeError, ValueError):
             return pd.Series({
                 "IMPACT_ENERGY_J": np.nan,
@@ -118,9 +127,7 @@ def add_calculated_columns(df: pd.DataFrame) -> pd.DataFrame:
     for column in energy.columns:
         out[column] = energy[column]
 
-    # Energy per gram of the target is a useful comparison metric for the
-    # documented events, but it is not a substitute for a fragmentation model.
-    target_mass_g = pd.to_numeric(out.get("TARGET_MASS_KG"), errors="coerce") * 1000.0
+    target_mass_g = out.get("TARGET_MASS_KG", pd.Series(np.nan, index=out.index)) * 1000.0
     out["ENERGY_PER_TARGET_MASS_J_PER_G"] = np.where(
         target_mass_g > 0,
         out["IMPACT_ENERGY_J"] / target_mass_g,
@@ -128,18 +135,6 @@ def add_calculated_columns(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     out["DATE_UTC"] = pd.to_datetime(out["DATE_UTC"], utc=True, errors="coerce")
-    for column in [
-        "ALTITUDE_KM",
-        "TARGET_MASS_KG",
-        "PROJECTILE_MASS_KG",
-        "RELATIVE_VELOCITY_KM_S",
-        "IMPACT_ENERGY_MJ",
-        "IMPACT_ENERGY_GJ",
-        "ENERGY_PER_TARGET_MASS_J_PER_G",
-    ]:
-        if column in out.columns:
-            out[column] = pd.to_numeric(out[column], errors="coerce")
-
     return out
 
 
@@ -171,6 +166,7 @@ def summarize_events(df: pd.DataFrame) -> dict:
         "known_altitude_events": int(calculated["ALTITUDE_KM"].notna().sum()),
         "known_relative_velocity_events": int(calculated["RELATIVE_VELOCITY_KM_S"].notna().sum()),
         "known_energy_events": int(calculated["IMPACT_ENERGY_MJ"].notna().sum()),
+        "known_rcs_events": int(calculated.get("DEBRIS_RCS_CM2", pd.Series(dtype=float)).notna().sum()),
         "max_relative_velocity_km_s": (
             float(calculated["RELATIVE_VELOCITY_KM_S"].max())
             if calculated["RELATIVE_VELOCITY_KM_S"].notna().any()
