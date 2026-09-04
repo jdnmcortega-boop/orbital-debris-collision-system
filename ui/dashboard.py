@@ -1,4 +1,4 @@
-"""Main Streamlit UI for the orbital-debris collision research system.
+"""Main Streamlit UI for ORION-X (Orbital Risk & Intelligence Operations Network).
 
 The UI keeps the scientifically distinct historical and present-day workflows
 separate, while exposing the orbital tracker and the QKD-vs-classical security
@@ -33,7 +33,7 @@ from ui.historical_rocket_tab import render_historical_rocket_tab
 
 
 st.set_page_config(
-    page_title="Orbital Debris Collision Risk",
+    page_title="ORION-X — Orbital Risk & Intelligence Operations Network",
     page_icon="🛰️",
     layout="wide",
 )
@@ -79,7 +79,7 @@ def load_result_json(path_text: str):
 
 
 def render_overview():
-    st.header("🛰️ Orbital Debris Collision Risk System")
+    st.header("🛰️ ORION-X — Orbital Risk & Intelligence Operations Network")
     st.caption(
         "Detection → propagation → conjunction screening → collision probability → "
         "risk forecasting → secure warning communication"
@@ -294,7 +294,8 @@ def render_qkd_classical():
 
 
 def main():
-    st.title("🛰️ Orbital Debris Collision Risk")
+    st.title("🛰️ ORION-X")
+    st.caption("Orbital Risk & Intelligence Operations Network")
     st.caption("PAST: historical replay  |  PAST-ROCKET: documented rocket-body collisions  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  SECURITY: QKD vs classical")
 
     overview_tab, historical_tab, rocket_tab, live_tab, tracker_tab, security_tab = st.tabs([
