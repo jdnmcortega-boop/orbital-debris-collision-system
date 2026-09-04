@@ -29,6 +29,7 @@ from modules import visualization as viz
 from modules import classical_security
 from modules import qkd
 from ui.historical_live_dashboard import render_historical_tab, render_live_tab
+from ui.historical_rocket_tab import render_historical_rocket_tab
 
 
 st.set_page_config(
@@ -294,11 +295,12 @@ def render_qkd_classical():
 
 def main():
     st.title("🛰️ Orbital Debris Collision Risk")
-    st.caption("PAST: historical replay  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  SECURITY: QKD vs classical")
+    st.caption("PAST: historical replay  |  PAST-ROCKET: documented rocket-body collisions  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  SECURITY: QKD vs classical")
 
-    overview_tab, historical_tab, live_tab, tracker_tab, security_tab = st.tabs([
+    overview_tab, historical_tab, rocket_tab, live_tab, tracker_tab, security_tab = st.tabs([
         "🏠 Overview",
         "⏪ Historical Replay / Validation",
+        "🚀 Historical Rocket Collisions",
         "📡 Live Tracker / 30-Day Forecast",
         "🌍 Orbital Tracker",
         "🔐 QKD vs Classical",
@@ -308,6 +310,8 @@ def main():
         render_overview()
     with historical_tab:
         render_historical_tab()
+    with rocket_tab:
+        render_historical_rocket_tab()
     with live_tab:
         render_live_tab()
     with tracker_tab:
