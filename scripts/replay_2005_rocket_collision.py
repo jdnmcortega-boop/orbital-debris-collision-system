@@ -6,7 +6,7 @@ record is used as the validation timestamp, not as an input to prediction.
 Run from the repository root:
     python scripts/replay_2005_rocket_collision.py
 
-The script writes a one-minute event-window reconstruction to
+The script writes a one-minute pre-event reconstruction to
 results/historical_rocket_2005/.
 """
 
@@ -24,7 +24,7 @@ from modules.historical_replay import merge_tle_archives, propagate_satellite, s
 ROOT = Path(__file__).resolve().parents[1]
 EVENT_TIME = datetime(2005, 1, 17, 2, 14, tzinfo=timezone.utc)
 WINDOW_START = EVENT_TIME - timedelta(hours=6)
-WINDOW_END = EVENT_TIME + timedelta(hours=6)
+WINDOW_END = EVENT_TIME
 
 TARGET_NORAD = 7219
 PROJECTILE_NORAD = 26207
@@ -67,7 +67,7 @@ def main() -> None:
 
     df = pd.DataFrame(rows)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    output = OUTPUT_DIR / "event_window_1min.csv"
+    output = OUTPUT_DIR / "pre_event_window_1min.csv"
     df.to_csv(output, index=False)
 
     event_row = df.loc[df["IS_VALIDATION_EVENT_TIME"] == 1].iloc[0]
