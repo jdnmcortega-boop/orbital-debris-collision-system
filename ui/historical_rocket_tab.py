@@ -36,11 +36,12 @@ def render_historical_rocket_tab():
         return
 
     summary = summarize_events(events)
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Documented events", summary["events"])
     c2.metric("Rocket-body targets", summary["rocket_body_targets"])
     c3.metric("Known altitudes", summary["known_altitude_events"])
     c4.metric("Known relative speeds", summary["known_relative_velocity_events"])
+    c5.metric("Known RCS values", summary["known_rcs_events"])
 
     st.subheader("Historical event table")
     display = events.copy()
@@ -50,17 +51,27 @@ def render_historical_rocket_tab():
     preferred = [
         "EVENT_ID", "DATE_UTC", "TARGET_NAME", "TARGET_NORAD_ID",
         "PROJECTILE_NAME", "PROJECTILE_NORAD_ID", "ALTITUDE_KM",
-        "TARGET_MASS_KG", "PROJECTILE_MASS_KG", "RELATIVE_VELOCITY_KM_S",
-        "IMPACT_ENERGY_MJ", "ENERGY_PER_TARGET_MASS_J_PER_G",
+        "TARGET_MASS_KG", "DEBRIS_RCS_CM2", "RELATIVE_VELOCITY_KM_S",
+        "CATALOGUED_FRAGMENTS", "IMPACT_ENERGY_MJ",
     ]
     columns = [c for c in preferred if c in display.columns]
     st.dataframe(display[columns], width="stretch", hide_index=True)
 
-    st.subheader("Calculated collision quantities")
+    st.subheader("Source-data integrity")
+    st.info(
+        "The NASA source reports the debris fragment's radar cross-section as 600 cm² "
+        "and the collision speed as just under 6 km/s. It does not provide a debris mass. "
+        "Therefore the software does not estimate debris mass from RCS and does not report "
+        "a fabricated impact-energy value."
+    )
+
+    st.subheader("Reproducible calculations")
     st.markdown(
-        "**Impact energy:** ½ × projectile mass × relative velocity². "
-        "The calculator also reports energy per gram of target mass. "
-        "These are physics-derived comparison metrics, not a fragmentation prediction."
+        "When historical mass and relative speed are both available, the module can calculate "
+        "kinetic energy using **E = ½mv²**. For this event, the required debris mass is not "
+        "published in the selected NASA source, so the energy field correctly remains unavailable. "
+        "If state vectors are supplied for the same epoch and coordinate frame, the module can "
+        "also calculate relative distance, relative velocity, and closing speed."
     )
 
     st.download_button(
@@ -75,7 +86,7 @@ def render_historical_rocket_tab():
         st.write(
             "The historical dataset intentionally starts with documented debris-to-rocket-body "
             "collisions rather than mixing satellite-to-debris and satellite-to-satellite events. "
-            "The 17 January 2005 Thor Burner 2A / CZ-4 debris event is a key documented example. "
+            "The 17 January 2005 Thor Burner 2A / CZ-4 debris event is a documented example. "
             "Additional events should only be added when the target is a rocket body and the event "
             "is supported by a reliable source."
         )
