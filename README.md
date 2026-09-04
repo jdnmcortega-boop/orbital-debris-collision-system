@@ -1,8 +1,8 @@
-# Quantum-Enhanced Orbital Debris Collision Risk System
+# ORION-X — Orbital Risk & Intelligence Operations Network
 
 ## Research Scope
 
-This project investigates the application of quantum and hybrid
+ORION-X investigates the application of quantum and hybrid
 quantum-classical computing to orbital-debris collision-risk analysis.
 
 The current software phase focuses on four major functions:
@@ -64,7 +64,7 @@ Classical security vs QKD simulation
 
 ## Dashboard: PAST vs PRESENT
 
-Run the main dashboard with:
+Run the main ORION-X dashboard with:
 
 ```text
 streamlit run ui/dashboard.py
@@ -119,7 +119,7 @@ for validation, while current orbital data is for present-day forecasting.
 
 ## Current Limitations
 
-This software is a research prototype and is not an operational
+ORION-X is a research prototype and is not an operational
 collision-avoidance system.
 
 It does not control spacecraft or physically intercept orbital debris.
