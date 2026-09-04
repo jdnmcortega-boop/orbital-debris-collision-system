@@ -359,32 +359,6 @@ def render_historical_tab():
         "collision probability. Both values are shown so the replay can be interpreted correctly."
     )
 
-    channel_a, channel_b = st.columns(2)
-    with channel_a:
-        st.markdown("### 📏 Channel 1 — Proximity warning")
-        st.metric(
-            "Current proximity alert",
-            format_warning_level(selected_row["FORECAST_PROXIMITY_ALERT_LEVEL"])
-            if "selected_row" in locals()
-            else "—",
-        )
-        st.caption(
-            "Geometric screening channel based on the forecast closest-approach distance. "
-            "It answers: **How close are the objects expected to pass?**"
-        )
-    with channel_b:
-        st.markdown("### 🎯 Channel 2 — Collision probability")
-        st.metric(
-            "Current probability risk",
-            format_warning_level(selected_row["ANALYTIC_RISK_LEVEL"])
-            if "selected_row" in locals()
-            else "—",
-        )
-        st.caption(
-            "Probability channel from the analytic collision-probability model. "
-            "It answers: **Given the modeled uncertainty, how likely is collision?**"
-        )
-
     selected_day = st.slider(
         "Replay timeline — select historical prediction state",
         min_value=float(result["DAYS_BEFORE_EVENT"].min()),
