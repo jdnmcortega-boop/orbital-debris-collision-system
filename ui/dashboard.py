@@ -139,6 +139,71 @@ def render_overview():
 
 
 def render_orbital_tracker():
+    st.header("🌍 Orbital Tracker")
+    st.caption("Current orbital objects, their orbital elements, and live SGP4 position propagation.")
+
+    orbital = load_orbital_data()
+    if orbital is None or orbital.empty:
+        st.warning("No current orbital dataset is available.")
+        return
+
+    id_col = next((c for c in ["NORAD_CAT_ID", "NORAD_ID", "OBJECT_ID"] if c in orbital.columns), None)
+    name_col = next((c for c in ["OBJECT_NAME", "NAME", "SATNAME"] if c in orbital.columns), None)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Tracked objects", int(orbital[id_col].nunique()) if id_col else int(len(orbital)))
+    c2.metric("Data rows", int(len(orbital)))
+    c3.metric("Data columns", int(len(orbital.columns)))
+
+    display = orbital.copy()
+    if name_col:
+        search = st.text_input("Filter by object name", "")
+        if search:
+            display = display[display[name_col].astype(str).str.contains(search, case=False, na=False)]
+
+    st.subheader("Orbital elements")
+    st.dataframe(display, width="stretch", height=330)
+
+    st.subheader("Live position propagation")
+    st.caption("SGP4 propagation uses the current orbital elements. The interactive globe below can animate the propagated positions through time.")
+
+    # Keep the original one-time propagation action available.
+    if st.button("🛰️ Propagate current objects now", key="tracker_propagate", type="secondary", width="stretch"):
+        try:
+            with st.spinner("Propagating current orbital elements with SGP4…"):
+                positions, failed = sgp4_propagation.propagate_all_now(orbital, verbose=False)
+            if positions is None or positions.empty:
+                st.warning("No orbital states could be propagated.")
+            else:
+                st.session_state["tracker_positions"] = positions
+                st.session_state["tracker_failed"] = failed
+                st.success(f"Propagation complete: {len(positions):,} states.")
+        except Exception as exc:
+            st.error(f"Propagation failed: {exc}")
+
+    positions = st.session_state.get("tracker_positions")
+    if positions is not None and not positions.empty:
+        failed = st.session_state.get("tracker_failed", [])
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Propagated states", f"{len(positions):,}")
+        c2.metric("Propagation failures", len(failed) if failed is not None else 0)
+        c3.metric("Timestamp", datetime.now(timezone.utc).strftime("%H:%M:%S UTC"))
+
+        try:
+            st.plotly_chart(
+                viz.live_globe_figure(
+                    positions,
+                    timestamp_label=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+                ),
+                width="stretch",
+            )
+        except Exception as exc:
+            st.info(f"3D orbital globe unavailable: {exc}")
+
+        st.subheader("Propagated states")
+        st.dataframe(positions.head(1000), width="stretch", height=300)
+
+    st.divider()
     render_live_orbit_animation()
 
 
