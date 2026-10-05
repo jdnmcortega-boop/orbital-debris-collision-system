@@ -31,6 +31,7 @@ from modules import qkd
 from modules.live_orbit_animation import render_live_orbit_animation
 from ui.historical_live_dashboard import render_historical_tab, render_live_tab
 from ui.historical_rocket_tab import render_historical_rocket_tab
+from ui.simulation_tab import render_simulation_tab
 
 
 st.set_page_config(
@@ -302,14 +303,15 @@ def render_qkd_classical():
 def main():
     st.title("🛰️ ORION-X")
     st.caption("Orbital Risk & Intelligence Operations Network")
-    st.caption("PAST: historical replay  |  PAST-ROCKET: documented rocket-body collisions  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  SECURITY: QKD vs classical")
+    st.caption("PAST: historical replay  |  PAST-ROCKET: documented rocket-body collisions  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  SIM: CubeSat debris-capture demonstration  |  SECURITY: QKD vs classical")
 
-    overview_tab, historical_tab, rocket_tab, live_tab, tracker_tab, security_tab = st.tabs([
+    overview_tab, historical_tab, rocket_tab, live_tab, tracker_tab, simulation_tab, security_tab = st.tabs([
         "🏠 Overview",
         "⏪ Historical Replay / Validation",
         "🚀 Historical Rocket Collisions",
         "📡 Live Tracker / 30-Day Forecast",
         "🌍 Orbital Tracker",
+        "🛰️ Capture Simulation",
         "🔐 QKD vs Classical",
     ])
 
@@ -323,6 +325,8 @@ def main():
         render_live_tab()
     with tracker_tab:
         render_orbital_tracker()
+    with simulation_tab:
+        render_simulation_tab()
     with security_tab:
         render_qkd_classical()
 
