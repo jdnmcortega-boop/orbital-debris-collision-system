@@ -4,8 +4,8 @@ matplotlib
 plotly
 scikit-learn
 scipy
-qiskit
-qiskit-aer
+qiskit==2.5.2
+qiskit-aer==0.17.2
 cryptography
-streamlit
+streamlit==1.65.0
 sgp4
