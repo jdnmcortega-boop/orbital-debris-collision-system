@@ -3,6 +3,7 @@ numpy
 matplotlib
 plotly
 scikit-learn
+scipy
 qiskit
 qiskit-aer
 cryptography
