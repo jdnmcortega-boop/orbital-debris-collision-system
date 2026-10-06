@@ -33,6 +33,7 @@ from ui.historical_live_dashboard import render_historical_tab, render_live_tab
 from ui.historical_rocket_tab import render_historical_rocket_tab
 from ui.prototype_simulation_tab import render_prototype_simulation_tab
 from ui.space_simulation_tab import render_space_simulation_tab
+from ui.collision_fragmentation_tab import render_collision_fragmentation_tab
 
 
 st.set_page_config(
@@ -304,9 +305,9 @@ def render_qkd_classical():
 def main():
     st.title("🛰️ ORION-X")
     st.caption("Orbital Risk & Intelligence Operations Network")
-    st.caption("PAST: historical replay  |  PAST-ROCKET: documented rocket-body collisions  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  PROTOTYPE: 3-D air-bearing capture test  |  SPACE SIM: historical orbital reconstruction  |  SECURITY: QKD vs classical")
+    st.caption("PAST: historical replay  |  PAST-ROCKET: documented rocket-body collisions  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  PROTOTYPE: 3-D air-bearing capture test  |  SPACE SIM: historical orbital reconstruction  |  FRAGMENT: collision and fragmentation analysis  |  SECURITY: QKD vs classical")
 
-    overview_tab, historical_tab, rocket_tab, live_tab, tracker_tab, prototype_tab, space_sim_tab, security_tab = st.tabs([
+    overview_tab, historical_tab, rocket_tab, live_tab, tracker_tab, prototype_tab, space_sim_tab, fragmentation_tab, security_tab = st.tabs([
         "🏠 Overview",
         "⏪ Historical Replay / Validation",
         "🚀 Historical Rocket Collisions",
@@ -314,6 +315,7 @@ def main():
         "🌍 Orbital Tracker",
         "🧪 Prototype Simulation",
         "🌌 Space Simulation",
+        "💥 Collision & Fragmentation",
         "🔐 QKD vs Classical",
     ])
 
@@ -331,6 +333,8 @@ def main():
         render_prototype_simulation_tab()
     with space_sim_tab:
         render_space_simulation_tab()
+    with fragmentation_tab:
+        render_collision_fragmentation_tab()
     with security_tab:
         render_qkd_classical()
 
