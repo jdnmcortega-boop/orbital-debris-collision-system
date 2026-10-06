@@ -20,8 +20,6 @@ import time
 import hashlib
 
 import numpy as np
-from qiskit import QuantumCircuit
-from qiskit_aer import AerSimulator
 
 import config
 from modules.classical_security import encrypt_message, decrypt_message
@@ -29,7 +27,10 @@ from modules.classical_security import encrypt_message, decrypt_message
 
 # max_parallel_threads=1 forces single-threaded execution, avoiding any
 # further OpenMP thread-pool conflict on top of the env-var fix above.
-SIMULATOR = AerSimulator(max_parallel_threads=1, max_parallel_experiments=1)
+def _get_simulator():
+    """Create the Aer simulator only when BB84 is actually executed."""
+    from qiskit_aer import AerSimulator
+    return AerSimulator(max_parallel_threads=1, max_parallel_experiments=1)
 
 
 # ============================================================
@@ -45,6 +46,9 @@ def run_channel(bits, prep_bases, measure_bases):
     and native-backend instability from too many rapid individual .run()
     invocations (observed as a Windows access-violation crash at n=256+).
     """
+    from qiskit import QuantumCircuit
+
+    simulator = _get_simulator()
     n = len(bits)
     circuits = []
     for i in range(n):
@@ -58,7 +62,7 @@ def run_channel(bits, prep_bases, measure_bases):
         qc.measure(0, 0)
         circuits.append(qc)
 
-    result = SIMULATOR.run(circuits, shots=1).result()
+    result = simulator.run(circuits, shots=1).result()
 
     measured_bits = []
     for i in range(n):
