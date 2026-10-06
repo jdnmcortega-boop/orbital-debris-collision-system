@@ -14,12 +14,6 @@ import time
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize_scalar
-from scipy.stats import ncx2
-
-from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister, transpile
-from qiskit.circuit.library import QFTGate, grover_operator
-from qiskit_aer import AerSimulator
 
 import config
 
@@ -55,6 +49,8 @@ def analytic_collision_probability(
     noncentrality = (miss_distance_km / combined_sigma) ** 2
     radius_term = (hard_body_radius_km / combined_sigma) ** 2
 
+    from scipy.stats import ncx2
+
     probability = ncx2.cdf(
         radius_term,
         df=2,
@@ -70,18 +66,21 @@ def analytic_collision_probability(
 
 def build_state_preparation(theta):
     """Prepare |psi> = sqrt(1-p)|0> + sqrt(p)|1> with p=sin²(theta/2)."""
+    from qiskit import QuantumCircuit
     qc = QuantumCircuit(1, name="A")
     qc.ry(theta, 0)
     return qc
 
 
 def build_oracle():
+    from qiskit import QuantumCircuit
     qc = QuantumCircuit(1, name="S_f")
     qc.z(0)
     return qc
 
 
 def build_grover_operator(theta):
+    from qiskit.circuit.library import grover_operator
     return grover_operator(
         oracle=build_oracle(),
         state_preparation=build_state_preparation(theta),
@@ -165,6 +164,8 @@ def _qae_mle_phase(counts, num_eval_qubits):
         )
     )
 
+    from scipy.optimize import minimize_scalar
+
     log_likelihoods = np.array([
         _qae_counts_log_likelihood(phi, counts, m)
         for phi in candidates
@@ -229,6 +230,10 @@ def run_qae(true_probability, num_eval_qubits=6, shots=200):
         raise ValueError("shots must be >= 1.")
 
     theta = 2.0 * np.arcsin(np.sqrt(true_probability))
+
+    from qiskit import ClassicalRegister, QuantumCircuit, QuantumRegister, transpile
+    from qiskit.circuit.library import QFTGate
+    from qiskit_aer import AerSimulator
 
     A = build_state_preparation(theta)
     grover_op = build_grover_operator(theta)
