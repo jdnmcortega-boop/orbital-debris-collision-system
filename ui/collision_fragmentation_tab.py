@@ -210,13 +210,25 @@ def _sample_lc_population(n, lc_parent_m, min_lc_m, seed):
     return np.clip(lc, lo, hi)
 
 
-def _material_density(material):
+def _material_profile(material):
+    """Material/density profile for the ORION-X engineering layer.
+    
+    The core SSBM collision-count equation remains material-independent.
+    Density is used for fragment-property and risk-priority calculations.
+    """
     return {
-        "Aluminum": 2700.0,
-        "Steel": 7850.0,
-        "Composite / plastic": 1500.0,
-        "Mixed spacecraft materials": 3000.0,
+        "Aluminum": {"density": 2700.0, "group": "Medium", "dv_scale": 1.00},
+        "Steel": {"density": 7900.0, "group": "High", "dv_scale": 0.94},
+        "CFRP": {"density": 1550.0, "group": "Low", "dv_scale": 1.08},
+        "Glass": {"density": 2510.0, "group": "Medium", "dv_scale": 1.02},
+        "Copper": {"density": 8940.0, "group": "High", "dv_scale": 0.92},
+        "Composite / plastic": {"density": 1500.0, "group": "Low", "dv_scale": 1.08},
+        "Mixed spacecraft materials": {"density": 2800.0, "group": "Medium", "dv_scale": 1.00},
     }[material]
+
+
+def _material_density(material):
+    return _material_profile(material)["density"]
 
 
 def _cloud_from_fragments(lc_m, masses_kg, vrel_km_s, impact_angle_deg, seed):
@@ -398,7 +410,7 @@ def render_collision_fragmentation_tab():
     with c3:
         material = st.selectbox(
             "Dominant material",
-            ["Aluminum", "Steel", "Composite / plastic", "Mixed spacecraft materials"],
+            ["Aluminum", "Steel", "CFRP", "Glass", "Copper", "Composite / plastic", "Mixed spacecraft materials"],
             key=f"frag_material_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
         )
         density = st.number_input(
