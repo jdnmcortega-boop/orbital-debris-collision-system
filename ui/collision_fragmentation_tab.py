@@ -231,7 +231,17 @@ def _material_density(material):
     return _material_profile(material)["density"]
 
 
-def _cloud_from_fragments(lc_m, masses_kg, vrel_km_s, impact_angle_deg, seed):
+def _cloud_from_fragments(
+    lc_m,
+    masses_kg,
+    vrel_km_s,
+    impact_angle_deg,
+    seed,
+    geometry_spread=1.0,
+    structure_spread=1.0,
+    structure_anisotropy=1.0,
+    material_dv_scale=1.0,
+):
     rng = np.random.default_rng(int(seed))
     n = len(lc_m)
     directions = rng.normal(size=(n, 3))
@@ -244,14 +254,23 @@ def _cloud_from_fragments(lc_m, masses_kg, vrel_km_s, impact_angle_deg, seed):
     chi = np.log10(np.maximum(area_mass, 1e-12))
     mu_log10_dv = 0.9 * chi + 2.90
     log10_dv = rng.normal(mu_log10_dv, 0.4)
-    dv = np.clip(10.0 ** log10_dv, 0.001, max(0.5, float(vrel_km_s)))
+    dv = np.clip(
+        (10.0 ** log10_dv) * float(material_dv_scale),
+        0.001,
+        max(0.5, 1.3 * float(vrel_km_s)),
+    )
 
     theta = math.radians(float(impact_angle_deg))
-    directions[:, 2] *= max(0.15, abs(math.cos(theta)))
+    directions[:, 0] *= float(geometry_spread)
+    directions[:, 1] *= float(structure_spread)
+    directions[:, 2] *= max(0.15, abs(math.cos(theta))) * float(structure_anisotropy)
     directions /= np.linalg.norm(directions, axis=1, keepdims=True)
 
     velocities = directions * dv[:, None]
     positions = rng.normal(0.0, 3.0, size=(n, 3))
+    positions[:, 0] *= float(geometry_spread)
+    positions[:, 1] *= float(structure_spread)
+    positions[:, 2] *= float(structure_spread) * float(structure_anisotropy)
     return positions, velocities, area_mass
 
 
@@ -471,12 +490,9 @@ def render_collision_fragmentation_tab():
         "Previously damaged": 0.75,
     }[structure]
 
-    geometry_factor = {
-        "Box / spacecraft bus": 1.00,
-        "Cylinder / rocket body": 0.92,
-        "Panel-dominated structure": 0.80,
-        "Other / equivalent body": 1.00,
-    }[geometry]
+    geometry_profile = _geometry_profile(geometry)
+    structure_profile = _structure_profile(structure)
+    material_profile = _material_profile(material)
 
     # Determine the catastrophic regime using the SSBM 40 J/g criterion.
     # Use the larger parent as target and the smaller as projectile.
@@ -494,10 +510,11 @@ def render_collision_fragmentation_tab():
 
     # Structural/geometry factors are explicitly sensitivity modifiers, while
     # the SSBM collision mass remains visible so the result is auditable.
+    ssbm_breakup_mass = collisional_mass
     modeled_mass = (
-        collisional_mass
-        * structure_factor
-        * geometry_factor
+        ssbm_breakup_mass
+        * structure_profile["mass_factor"]
+        * geometry_profile["mass_factor"]
         * (energy_partition / 100.0)
     )
 
@@ -523,11 +540,21 @@ def render_collision_fragmentation_tab():
     st.latex(r"E_c=\frac{1}{2}\mu v_{rel}^2,\qquad E_p=\frac{0.5m_pv^2}{m_t}")
     st.info(
         "SSBM defines a collision as catastrophic when impact kinetic energy per target "
-        "mass reaches 40 J/g. For collisions, the cumulative fragment count follows "
-        "N(≥Lc) = S·0.1·M^0.75·Lc^-1.71."
+        "mass reaches 40 J/g. Parent mass and collision velocity change the core SSBM "
+        "result directly. Geometry, material, and structural design are applied in the "
+        "ORION-X engineering layer because the standard SSBM does not fully resolve "
+        "those details."
+    )
+    st.caption(
+        f"Engineering layer: {geometry} | {material} "
+        f"({material_profile['group']} density) | {structure}"
     )
 
     st.subheader("5. Fragment population")
+    st.write(
+        f"**Active scenario:** {a_name} ({m1:,.1f} kg) + {b_name} ({m2:,.1f} kg) | "
+        f"{vrel:.3f} km/s | {geometry} | {material} | {structure}"
+    )
 
     lc_values = _sample_lc_population(
         n_display,
@@ -544,8 +571,21 @@ def render_collision_fragmentation_tab():
     masses = raw_masses / raw_masses.sum() * max(modeled_mass, 1e-9)
     densities = np.full(n_display, density)
 
+    # Material is applied to fragment properties through the NASA-style
+    # density categories rather than changing the core SSBM count.
+    material_am_scale = 2800.0 / max(float(density), 100.0)
+    area_mass = (area_values / np.maximum(masses, 1e-12)) * material_am_scale
+
     positions, velocities, area_mass = _cloud_from_fragments(
-        lc_values, masses, vrel, impact_angle, int(seed)
+        lc_values,
+        masses,
+        vrel,
+        impact_angle,
+        int(seed),
+        geometry_spread=float(geometry_profile["spread"]),
+        structure_spread=float(structure_profile["spread"]),
+        structure_anisotropy=float(structure_profile["anisotropy"]),
+        material_dv_scale=float(material_profile["dv_scale"]),
     )
 
     total_displayed_mass = float(masses.sum())
@@ -557,8 +597,8 @@ def render_collision_fragmentation_tab():
     )
 
     metrics = st.columns(4)
-    metrics[0].metric("SSBM collisional mass M", f"{collisional_mass:,.2f} kg")
-    metrics[1].metric("Modeled breakup mass", f"{modeled_mass:,.2f} kg")
+    metrics[0].metric("SSBM collisional mass M", f"{ssbm_breakup_mass:,.2f} kg")
+    metrics[1].metric("ORION-X modeled breakup mass", f"{modeled_mass:,.2f} kg")
     metrics[2].metric("Displayed mass", f"{total_displayed_mass:,.2f} kg")
     metrics[3].metric(
         "Mass-conservation error",
