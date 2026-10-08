@@ -285,9 +285,10 @@ def _fragment_table(lc_m, masses_kg, densities, velocities, area_mass):
         "ΔV (m/s)": speed * 1000.0,
     })
     df["Capture priority"] = (
-        0.45 * np.clip(df["Characteristic length (mm)"] / 100.0, 0, 1)
-        + 0.35 * np.clip(df["ΔV (m/s)"] / 500.0, 0, 1)
-        + 0.20 * np.clip(np.log10(np.maximum(df["Mass (g)"], 1e-9) + 1) / 3, 0, 1)
+        0.40 * np.clip(df["Characteristic length (mm)"] / 100.0, 0, 1)
+        + 0.30 * np.clip(df["ΔV (m/s)"] / 500.0, 0, 1)
+        + 0.15 * np.clip(np.log10(np.maximum(df["Mass (g)"], 1e-9) + 1) / 3, 0, 1)
+        + 0.15 * np.clip(np.log10(np.maximum(df["Area-to-mass (m²/kg)"], 1e-9) + 1) / 2, 0, 1)
     )
     return df.sort_values("Capture priority", ascending=False).reset_index(drop=True)
 
@@ -437,7 +438,7 @@ def render_collision_fragmentation_tab():
             min_value=100.0,
             value=float(_material_density(material)),
             step=100.0,
-            key=f"frag_density_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
+            key=f"frag_density_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}_{material}",
         )
 
     lc_parent = _characteristic_length([dim_x, dim_y, dim_z])
