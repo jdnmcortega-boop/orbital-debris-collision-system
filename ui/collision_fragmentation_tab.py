@@ -587,7 +587,7 @@ def render_collision_fragmentation_tab():
     material_am_scale = 2800.0 / max(float(density), 100.0)
     area_mass = (area_values / np.maximum(masses, 1e-12)) * material_am_scale
 
-    positions, velocities, area_mass = _cloud_from_fragments(
+    positions, velocities, _ = _cloud_from_fragments(
         lc_values,
         masses,
         vrel,
@@ -598,6 +598,8 @@ def render_collision_fragmentation_tab():
         structure_anisotropy=float(structure_profile["anisotropy"]),
         material_dv_scale=float(material_profile["dv_scale"]),
     )
+    # Reapply the selected material's density effect after cloud generation.
+    area_mass = (area_values / np.maximum(masses, 1e-12)) * material_am_scale
 
     total_displayed_mass = float(masses.sum())
     st.write(
