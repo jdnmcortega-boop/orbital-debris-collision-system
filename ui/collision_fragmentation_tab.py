@@ -362,7 +362,7 @@ def render_collision_fragmentation_tab():
         )
     with c2:
         m2 = st.number_input(
-            f"{b_name} mass (kg)", min_value=0.01, value=500.0, step=10.0, key="frag_m2"
+            f"{b_name} mass (kg)", min_value=0.01, value=500.0, step=10.0, key=f"frag_m2_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}"
         )
     with c3:
         default_v = float(pair_v) if np.isfinite(pair_v) else 10.0
@@ -389,24 +389,24 @@ def render_collision_fragmentation_tab():
         geometry = st.selectbox(
             "Parent geometry",
             ["Box / spacecraft bus", "Cylinder / rocket body", "Panel-dominated structure", "Other / equivalent body"],
-            key="frag_geometry",
+            key=f"frag_geometry_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
         )
-        dim_x = st.number_input("Maximum dimension X (m)", min_value=0.01, value=2.0, step=0.1, key="frag_dim_x")
+        dim_x = st.number_input("Maximum dimension X (m)", min_value=0.01, value=2.0, step=0.1, key=f"frag_dim_x_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}")
     with c2:
-        dim_y = st.number_input("Maximum dimension Y (m)", min_value=0.01, value=2.0, step=0.1, key="frag_dim_y")
-        dim_z = st.number_input("Maximum dimension Z (m)", min_value=0.01, value=2.0, step=0.1, key="frag_dim_z")
+        dim_y = st.number_input("Maximum dimension Y (m)", min_value=0.01, value=2.0, step=0.1, key=f"frag_dim_y_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}")
+        dim_z = st.number_input("Maximum dimension Z (m)", min_value=0.01, value=2.0, step=0.1, key=f"frag_dim_z_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}")
     with c3:
         material = st.selectbox(
             "Dominant material",
             ["Aluminum", "Steel", "Composite / plastic", "Mixed spacecraft materials"],
-            key="frag_material",
+            key=f"frag_material_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
         )
         density = st.number_input(
             "Effective bulk density (kg/m³)",
             min_value=100.0,
             value=float(_material_density(material)),
             step=100.0,
-            key="frag_density",
+            key=f"frag_density_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
         )
 
     lc_parent = _characteristic_length([dim_x, dim_y, dim_z])
@@ -417,17 +417,17 @@ def render_collision_fragmentation_tab():
         structure = st.selectbox(
             "Structural configuration",
             ["Intact / integrated", "Bus + panels", "Tank / rocket-body dominated", "Previously damaged"],
-            key="frag_structure",
+            key=f"frag_structure_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
         )
     with c2:
         impact_angle = st.slider(
             "Impact angle relative to reference axis (deg)",
-            0, 90, 45, 5, key="frag_angle"
+            0, 90, 45, 5, key=f"frag_angle_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}"
         )
     with c3:
         energy_partition = st.slider(
             "Breakup/ejecta mass fraction (%)",
-            1, 100, 100, 1, key="frag_energy_partition",
+            1, 100, 100, 1, key=f"frag_energy_partition_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
             help="Research sensitivity parameter for how much of the SSBM collisional mass is represented in the modeled breakup cloud. It is not a measured material constant.",
         )
 
