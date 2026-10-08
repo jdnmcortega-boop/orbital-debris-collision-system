@@ -1,8 +1,9 @@
-"""ORION-X collision and fragmentation simulation tab.
+"""ORION-X collision and fragmentation tab.
 
-NASA SSBM-based event-specific breakup model for educational/research use.
-The NASA Standard Breakup Model is semi-empirical: it estimates a fragment
-population statistically; it does not reproduce every individual fragment.
+Physics-informed, NASA SSBM-based statistical breakup model.
+Important: TLE/orbital records do not contain spacecraft mass, CAD geometry,
+material layup, or structural design, so those engineering properties remain
+explicit inputs rather than being invented from an object name.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from modules import data_loader
 
 EARTH_RADIUS_KM = 6378.137
+SSBM_MIN_LC_M = 0.001
 
 
 def _load_objects():
@@ -37,6 +39,52 @@ def _name_column(df):
     return next((c for c in ["OBJECT_NAME", "NAME", "SATNAME"] if c in df.columns), None)
 
 
+def _id_column(df):
+    return next((c for c in ["NORAD_CAT_ID", "NORAD_ID", "OBJECT_ID"] if c in df.columns), None)
+
+
+def _object_row(df, name, name_col):
+    if df.empty or not name_col:
+        return None
+    rows = df[df[name_col].astype(str) == str(name)]
+    return rows.iloc[0] if not rows.empty else None
+
+
+def _safe_float(row, column, default=np.nan):
+    try:
+        value = float(row[column])
+        return value if np.isfinite(value) else default
+    except Exception:
+        return default
+
+
+def _estimate_orbital_speed_km_s(row):
+    """Estimate circular speed from mean motion when a TLE record is available.
+
+    This is only a kinematic estimate used to make pair selection responsive.
+    It is not a substitute for full SGP4 relative velocity at TCA.
+    """
+    if row is None:
+        return np.nan
+    mm = _safe_float(row, "MEAN_MOTION")
+    if not np.isfinite(mm) or mm <= 0:
+        return np.nan
+    # Mean motion rev/day -> rad/s; v = (mu*n)^(1/3).
+    n = mm * 2.0 * math.pi / 86400.0
+    mu_earth = 398600.4418
+    return (mu_earth * n) ** (1.0 / 3.0)
+
+
+def _pair_relative_velocity_estimate(row_a, row_b):
+    va = _estimate_orbital_speed_km_s(row_a)
+    vb = _estimate_orbital_speed_km_s(row_b)
+    if not (np.isfinite(va) and np.isfinite(vb)):
+        return np.nan
+    # Conservative pair-specific first-order estimate. Exact relative velocity
+    # requires vector state propagation to TCA.
+    return min(15.0, max(0.1, va + vb))
+
+
 def _collision_energy(m1_kg, m2_kg, relative_velocity_km_s):
     v = float(relative_velocity_km_s) * 1000.0
     mu = (m1_kg * m2_kg) / max(m1_kg + m2_kg, 1e-12)
@@ -44,62 +92,60 @@ def _collision_energy(m1_kg, m2_kg, relative_velocity_km_s):
 
 
 def _projectile_energy_per_target_mass_j_g(m_projectile_kg, v_km_s, target_mass_kg):
-    # E_p = 0.5*m_p*v^2 / m_t, expressed in J/g.
-    return 0.5 * m_projectile_kg * (v_km_s * 1000.0) ** 2 / max(target_mass_kg * 1000.0, 1e-12)
+    return (
+        0.5 * m_projectile_kg * (v_km_s * 1000.0) ** 2
+        / max(target_mass_kg * 1000.0, 1e-12)
+    )
 
 
-def _ssbm_fragmented_mass(m_target_kg, m_projectile_kg, v_km_s, catastrophic):
-    """Core NASA SSBM mass-partition relationship used for collisions.
+def _ssbm_collision_mass(m_target_kg, m_projectile_kg, v_km_s, catastrophic):
+    """Return SSBM collisional mass M in kg.
 
-    The published relationship is proportional to impact velocity squared and
-    is capped by the available parent masses in practical implementations.
+    For catastrophic collisions M is the sum of both parent masses.
+    For non-catastrophic collisions, the SSBM collision power law uses
+    projectile mass multiplied by impact velocity squared (km/s)^2.
     """
-    if not catastrophic:
-        # Non-catastrophic collisions fragment only a fraction of each parent.
-        target_fraction = min(0.5, 0.1 * v_km_s ** 2)
-        projectile_fraction = min(1.0, 0.1 * v_km_s ** 2)
-        return target_fraction * m_target_kg, projectile_fraction * m_projectile_kg
-
-    # Catastrophic breakup: both parent populations are treated as fragmented.
-    return m_target_kg, m_projectile_kg
+    if catastrophic:
+        return max(m_target_kg + m_projectile_kg, 1e-9)
+    return max(m_projectile_kg * v_km_s ** 2, 1e-9)
 
 
-def _lc_from_mass_and_density(mass_kg, density_kg_m3):
-    # Equivalent-volume characteristic length. Used when no measured geometry
-    # is supplied; this is a proxy, not a literal spacecraft dimension.
-    volume = max(mass_kg, 1e-9) / max(density_kg_m3, 1.0)
-    return (6.0 * volume / math.pi) ** (1.0 / 3.0)
+def _characteristic_length(dimensions_m):
+    # NASA SSBM convention: average of the three maximum orthogonal
+    # projected dimensions.
+    return float(np.mean(np.asarray(dimensions_m, dtype=float)))
 
 
 def _area_from_lc(lc_m):
-    # NASA SSBM area/characteristic-length relationship.
     if lc_m < 0.00167:
         return 0.540424 * lc_m ** 2
     return 0.556945 * lc_m ** 2.0047077
 
 
-def _ssbm_number_above_lc(fragmented_mass_kg, lc_m):
-    # Cumulative SSBM fragment-number relationship.
-    # Guard against an unphysical count below one.
-    n = 0.1 * max(fragmented_mass_kg, 1e-9) ** 0.75 * max(lc_m, 1e-6) ** (-1.71)
-    return max(1, int(round(n)))
+def _ssbm_number_above_lc(collisional_mass_kg, lc_m, scale_factor=1.0):
+    """Cumulative SSBM collision count N(>=Lc)."""
+    lc = max(float(lc_m), 1e-6)
+    n = (
+        float(scale_factor)
+        * 0.1
+        * max(float(collisional_mass_kg), 1e-9) ** 0.75
+        * lc ** (-1.71)
+    )
+    return max(0, int(math.floor(n)))
 
 
-def _sample_lc_population(n, lc_parent_m, min_lc_m=0.001):
-    """Sample a finite population consistent with a cumulative power law.
-
-    N(>Lc) ~ Lc^-1.71. Inverse-transform sampling is used between a minimum
-    characteristic length and the parent characteristic length.
-    """
-    rng = np.random.default_rng()
+def _sample_lc_population(n, lc_parent_m, min_lc_m, seed):
+    """Inverse-sample a finite population from the SSBM cumulative power law."""
+    rng = np.random.default_rng(int(seed))
     n = max(int(n), 1)
-    lo = min(max(min_lc_m, 1e-5), max(lc_parent_m * 0.999, 1.01e-5))
-    hi = max(lc_parent_m, lo * 1.01)
-    alpha = 1.71
+    lo = max(float(min_lc_m), 1e-5)
+    hi = max(float(lc_parent_m), lo * 1.001)
 
-    u = rng.random(n)
+    # The cumulative law is proportional to Lc^-alpha.
+    alpha = 1.71
     lo_pow = lo ** (-alpha)
     hi_pow = hi ** (-alpha)
+    u = rng.random(n)
     lc = (lo_pow - u * (lo_pow - hi_pow)) ** (-1.0 / alpha)
     return np.clip(lc, lo, hi)
 
@@ -114,24 +160,24 @@ def _material_density(material):
 
 
 def _cloud_from_fragments(lc_m, masses_kg, vrel_km_s, impact_angle_deg, seed):
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(int(seed))
     n = len(lc_m)
     directions = rng.normal(size=(n, 3))
     directions /= np.linalg.norm(directions, axis=1, keepdims=True)
 
-    # SSBM-style statistical delta-V visualization: larger A/M pieces receive
-    # larger perturbations. This is a distributional model, not CFD/FEA.
     area = np.array([_area_from_lc(x) for x in lc_m])
     area_mass = area / np.maximum(masses_kg, 1e-12)
+
+    # NASA SSBM-style empirical log10(delta-V) relationship.
     chi = np.log10(np.maximum(area_mass, 1e-12))
     mu_log10_dv = 0.9 * chi + 2.90
     log10_dv = rng.normal(mu_log10_dv, 0.4)
-    dv = np.clip(10.0 ** log10_dv, 0.001, max(0.5, vrel_km_s))
+    dv = np.clip(10.0 ** log10_dv, 0.001, max(0.5, float(vrel_km_s)))
 
-    # Bias the cloud toward the collision plane according to impact angle.
     theta = math.radians(float(impact_angle_deg))
     directions[:, 2] *= max(0.15, abs(math.cos(theta)))
     directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+
     velocities = directions * dv[:, None]
     positions = rng.normal(0.0, 3.0, size=(n, 3))
     return positions, velocities, area_mass
@@ -162,29 +208,43 @@ def _fragment_scene(positions, lc_m, target_a, target_b):
     x = EARTH_RADIUS_KM * np.outer(np.cos(u), np.cos(v))
     y = EARTH_RADIUS_KM * np.outer(np.sin(u), np.cos(v))
     z = EARTH_RADIUS_KM * np.outer(np.ones_like(u), np.sin(v))
-    fig.add_trace(go.Surface(x=x, y=y, z=z, name="Earth", showscale=False, opacity=0.35, hoverinfo="skip"))
+    fig.add_trace(go.Surface(
+        x=x, y=y, z=z, name="Earth", showscale=False, opacity=0.35, hoverinfo="skip"
+    ))
 
     offset = np.array([EARTH_RADIUS_KM + 700.0, 0.0, 0.0])
     points = offset + positions * 25.0
-    sizes = np.clip(4.0 + 16.0 * np.sqrt(np.maximum(lc_m, 0.001) / 0.05), 4, 22)
+    sizes = np.clip(
+        4.0 + 16.0 * np.sqrt(np.maximum(lc_m, 0.001) / 0.05), 4, 22
+    )
     fig.add_trace(go.Scatter3d(
-        x=points[:, 0], y=points[:, 1], z=points[:, 2], mode="markers",
-        name="SSBM fragment population", marker=dict(size=sizes, opacity=0.75),
+        x=points[:, 0], y=points[:, 1], z=points[:, 2],
+        mode="markers", name="SSBM fragment population",
+        marker=dict(size=sizes, opacity=0.75),
         customdata=np.column_stack([lc_m * 1000.0]),
         hovertemplate="Characteristic length: %{customdata[0]:.2f} mm<extra></extra>",
     ))
     fig.add_trace(go.Scatter3d(
         x=[offset[0] - 500, offset[0]], y=[0, 0], z=[0, 0],
-        mode="lines+markers", name=f"{target_a} → collision", line=dict(width=6), marker=dict(size=5),
+        mode="lines+markers", name=f"{target_a} → collision",
+        line=dict(width=6), marker=dict(size=5),
     ))
     fig.add_trace(go.Scatter3d(
         x=[offset[0] + 500, offset[0]], y=[0, 0], z=[0, 0],
-        mode="lines+markers", name=f"{target_b} → collision", line=dict(width=6), marker=dict(size=5),
+        mode="lines+markers", name=f"{target_b} → collision",
+        line=dict(width=6), marker=dict(size=5),
     ))
     fig.update_layout(
-        height=700, title="3-D NASA SSBM-Based Fragment Cloud",
-        scene=dict(xaxis_title="ECI X (km)", yaxis_title="ECI Y (km)", zaxis_title="ECI Z (km)", aspectmode="data"),
-        margin=dict(l=0, r=0, t=60, b=0), legend=dict(orientation="h", y=-0.03),
+        height=700,
+        title="3-D NASA SSBM-Based Fragment Cloud",
+        scene=dict(
+            xaxis_title="ECI X (km)",
+            yaxis_title="ECI Y (km)",
+            zaxis_title="ECI Z (km)",
+            aspectmode="data",
+        ),
+        margin=dict(l=0, r=0, t=60, b=0),
+        legend=dict(orientation="h", y=-0.03),
     )
     return fig
 
@@ -192,19 +252,22 @@ def _fragment_scene(positions, lc_m, target_a, target_b):
 def render_collision_fragmentation_tab():
     st.header("💥 Collision & Fragmentation")
     st.caption(
-        "NASA SSBM-based event-specific breakup model: collision energy, geometry, "
-        "material/structure assumptions, fragment size, area-to-mass ratio, and ΔV."
+        "NASA SSBM-based breakup estimate using pair-specific orbital kinematics "
+        "plus explicit mass, geometry, material, structural, and impact assumptions."
     )
 
     st.warning(
-        "This is a NASA Standard Breakup Model (SSBM)-based statistical estimate, not an exact "
-        "reconstruction of every physical fragment. Detailed spacecraft CAD, material layup, "
-        "impact geometry, and validated structural models would be required for higher-fidelity prediction."
+        "Important: orbital/TLE data do not contain reliable spacecraft mass, CAD geometry, "
+        "material layup, or structural design. Those engineering properties must be supplied "
+        "from documented sources. The SSBM result is a statistical fragment population, not "
+        "an exact prediction of every physical fragment."
     )
 
     objects = _load_objects()
     name_col = _name_column(objects)
-    st.subheader("1. Collision event and parent-object properties")
+    id_col = _id_column(objects)
+
+    st.subheader("1. Select the colliding pair")
 
     if not objects.empty and name_col:
         names = sorted(objects[name_col].astype(str).drop_duplicates().tolist())[:5000]
@@ -217,28 +280,61 @@ def render_collision_fragmentation_tab():
     else:
         a_name, b_name = "Object A", "Object B"
 
+    row_a = _object_row(objects, a_name, name_col)
+    row_b = _object_row(objects, b_name, name_col)
+    pair_v = _pair_relative_velocity_estimate(row_a, row_b)
+
+    pair_id_a = _safe_float(row_a, id_col) if row_a is not None and id_col else np.nan
+    pair_id_b = _safe_float(row_b, id_col) if row_b is not None and id_col else np.nan
+
+    st.caption(
+        f"Selected pair: {a_name} + {b_name} | "
+        f"IDs: {pair_id_a if np.isfinite(pair_id_a) else 'n/a'} / "
+        f"{pair_id_b if np.isfinite(pair_id_b) else 'n/a'}"
+    )
+
+    st.subheader("2. Parent mass and collision velocity")
+
     c1, c2, c3 = st.columns(3)
     with c1:
-        m1 = st.number_input("Object A mass (kg)", min_value=0.01, value=500.0, step=10.0, key="frag_m1")
+        m1 = st.number_input(
+            f"{a_name} mass (kg)", min_value=0.01, value=500.0, step=10.0, key="frag_m1"
+        )
     with c2:
-        m2 = st.number_input("Object B mass (kg)", min_value=0.01, value=500.0, step=10.0, key="frag_m2")
+        m2 = st.number_input(
+            f"{b_name} mass (kg)", min_value=0.01, value=500.0, step=10.0, key="frag_m2"
+        )
     with c3:
-        vrel = st.number_input("Relative collision velocity (km/s)", min_value=0.01, value=10.0, step=0.5, key="frag_vrel")
+        default_v = float(pair_v) if np.isfinite(pair_v) else 10.0
+        vrel = st.number_input(
+            "Relative collision velocity (km/s)",
+            min_value=0.01,
+            value=round(default_v, 2),
+            step=0.5,
+            key="frag_vrel",
+            help="Auto-filled from the selected pair's mean-motion-derived speeds when available. Exact TCA relative velocity requires SGP4 state propagation.",
+        )
 
-    st.subheader("2. Geometry, material, and structural assumptions")
+    if np.isfinite(pair_v):
+        st.info(
+            f"Pair-specific orbital-speed estimate: {pair_v:.2f} km/s. "
+            "Change the input manually if you have a validated TCA relative velocity."
+        )
+
+    st.subheader("3. Geometry, material, and structural design")
+
     c1, c2, c3 = st.columns(3)
     with c1:
         geometry = st.selectbox(
             "Parent geometry",
-            ["Equivalent-volume body", "Box / spacecraft bus", "Cylinder / rocket body", "Panel-dominated structure"],
+            ["Box / spacecraft bus", "Cylinder / rocket body", "Panel-dominated structure", "Other / equivalent body"],
             key="frag_geometry",
         )
-        lc_input = st.number_input(
-            "Characteristic length (m)",
-            min_value=0.01, value=2.0, step=0.1, key="frag_lc",
-            help="Use a measured/engineering characteristic length when available.",
-        )
+        dim_x = st.number_input("Maximum dimension X (m)", min_value=0.01, value=2.0, step=0.1, key="frag_dim_x")
     with c2:
+        dim_y = st.number_input("Maximum dimension Y (m)", min_value=0.01, value=2.0, step=0.1, key="frag_dim_y")
+        dim_z = st.number_input("Maximum dimension Z (m)", min_value=0.01, value=2.0, step=0.1, key="frag_dim_z")
+    with c3:
         material = st.selectbox(
             "Dominant material",
             ["Aluminum", "Steel", "Composite / plastic", "Mixed spacecraft materials"],
@@ -246,88 +342,130 @@ def render_collision_fragmentation_tab():
         )
         density = st.number_input(
             "Effective bulk density (kg/m³)",
-            min_value=100.0, value=float(_material_density(material)), step=100.0, key="frag_density",
-            help="Adjust when a documented material mixture or object-specific value is available.",
+            min_value=100.0,
+            value=float(_material_density(material)),
+            step=100.0,
+            key="frag_density",
         )
-    with c3:
-        structure = st.selectbox(
-            "Structural configuration",
-            ["Intact / integrated", "Spacecraft bus + panels", "Tank / rocket-body dominated", "Highly fragmented / damaged"],
-            key="frag_structure",
-        )
-        impact_angle = st.slider("Impact angle relative to reference axis (deg)", 0, 90, 45, 5, key="frag_angle")
+
+    lc_parent = _characteristic_length([dim_x, dim_y, dim_z])
+    st.metric("Parent characteristic length Lc", f"{lc_parent:.3f} m")
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        energy_partition = st.slider(
-            "Energy-to-breakup partition (%)", 1, 100, 30, 1,
-            help="Research parameter for the fraction of collision energy assigned to breakup/ejecta in this event model.",
+        structure = st.selectbox(
+            "Structural configuration",
+            ["Intact / integrated", "Bus + panels", "Tank / rocket-body dominated", "Previously damaged"],
+            key="frag_structure",
         )
     with c2:
-        min_lc_mm = st.selectbox("Minimum modeled characteristic length (mm)", [1.0, 5.0, 10.0, 20.0], index=0, key="frag_min_lc")
+        impact_angle = st.slider(
+            "Impact angle relative to reference axis (deg)",
+            0, 90, 45, 5, key="frag_angle"
+        )
+    with c3:
+        energy_partition = st.slider(
+            "Breakup/ejecta mass fraction (%)",
+            1, 100, 100, 1, key="frag_energy_partition",
+            help="Research sensitivity parameter for how much of the SSBM collisional mass is represented in the modeled breakup cloud. It is not a measured material constant.",
+        )
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        min_lc_mm = st.selectbox(
+            "Minimum modeled fragment size (mm)",
+            [1.0, 2.0, 5.0, 10.0, 20.0],
+            index=0,
+            key="frag_min_lc",
+        )
+    with c2:
+        scale_factor = st.number_input(
+            "SSBM empirical scale S",
+            min_value=0.10,
+            max_value=5.00,
+            value=1.00,
+            step=0.05,
+            key="frag_ssbm_scale",
+            help="SSBM rescaling factor. Keep at 1.0 for the standard model unless you have validation data supporting another value.",
+        )
     with c3:
         seed = st.number_input("Simulation seed", min_value=0, value=42, step=1, key="frag_seed")
 
-    # Structural configuration affects the effective breakup mass, while the
-    # actual SSBM collision regime is determined by impact energy per target mass.
     structure_factor = {
         "Intact / integrated": 1.00,
-        "Spacecraft bus + panels": 0.95,
+        "Bus + panels": 0.95,
         "Tank / rocket-body dominated": 0.90,
-        "Highly fragmented / damaged": 0.75,
+        "Previously damaged": 0.75,
     }[structure]
+
     geometry_factor = {
-        "Equivalent-volume body": 1.00,
-        "Box / spacecraft bus": 0.95,
+        "Box / spacecraft bus": 1.00,
         "Cylinder / rocket body": 0.92,
         "Panel-dominated structure": 0.80,
+        "Other / equivalent body": 1.00,
     }[geometry]
 
+    # Determine the catastrophic regime using the SSBM 40 J/g criterion.
+    # Use the larger parent as target and the smaller as projectile.
+    target_mass = max(m1, m2)
+    projectile_mass = min(m1, m2)
     mu, energy = _collision_energy(m1, m2, vrel)
-    catastrophic_metric = _projectile_energy_per_target_mass_j_g(m2, vrel, m1)
-    catastrophic = catastrophic_metric > 40.0
-    fragmented_target, fragmented_projectile = _ssbm_fragmented_mass(m1, m2, vrel, catastrophic)
-    effective_fragmented_mass = (
-        (fragmented_target + fragmented_projectile)
+    catastrophic_metric = _projectile_energy_per_target_mass_j_g(
+        projectile_mass, vrel, target_mass
+    )
+    catastrophic = catastrophic_metric >= 40.0
+
+    collisional_mass = _ssbm_collision_mass(
+        target_mass, projectile_mass, vrel, catastrophic
+    )
+
+    # Structural/geometry factors are explicitly sensitivity modifiers, while
+    # the SSBM collision mass remains visible so the result is auditable.
+    modeled_mass = (
+        collisional_mass
         * structure_factor
         * geometry_factor
         * (energy_partition / 100.0)
     )
 
-    # Use the user-supplied geometry when available. The density is used to
-    # calculate a representative mass/geometry consistency scale.
-    lc = max(float(lc_input), 0.01)
-    equivalent_lc = _lc_from_mass_and_density(effective_fragmented_mass, density)
-    effective_lc = max(min(lc, max(equivalent_lc * 4.0, 0.01)), 0.01)
+    min_lc_m = float(min_lc_mm) / 1000.0
+    n_est = _ssbm_number_above_lc(
+        modeled_mass, min_lc_m, scale_factor=float(scale_factor)
+    )
+    # Never let a valid breakup collapse to an arbitrary two-fragment display.
+    # Keep the full model population up to a UI-safe ceiling.
+    n_display = int(np.clip(n_est, 10, 5000))
 
-    n_est = _ssbm_number_above_lc(effective_fragmented_mass, effective_lc)
-    n_est = int(np.clip(n_est, 1, 20000))
-    display_n = min(n_est, 1000)
-
-    st.subheader("3. SSBM collision regime and energetics")
+    st.subheader("4. SSBM collision regime and energetics")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total mass", f"{m1 + m2:,.1f} kg")
+    c1.metric("Total parent mass", f"{m1 + m2:,.1f} kg")
     c2.metric("Collision energy", f"{energy / 1e9:,.2f} GJ")
     c3.metric("Eₚ / target mass", f"{catastrophic_metric:,.1f} J/g")
     c4.metric("Regime", "Catastrophic" if catastrophic else "Non-catastrophic")
 
     st.latex(r"E_c=\frac{1}{2}\mu v_{rel}^2,\qquad E_p=\frac{0.5m_pv^2}{m_t}")
     st.info(
-        "NASA SSBM collision screening uses 40 J/g as the catastrophic-breakup threshold. "
-        "The model then estimates a statistical fragment population; it does not resolve individual structural failure."
+        "SSBM defines a collision as catastrophic when impact kinetic energy per target "
+        "mass reaches 40 J/g. For collisions, the cumulative fragment count follows "
+        "N(≥Lc) = S·0.1·M^0.75·Lc^-1.71."
     )
 
-    st.subheader("4. Fragment population")
-    rng = np.random.default_rng(int(seed))
-    # Reproducible population without relying on global RNG state.
-    lc_values = _sample_lc_population(display_n, effective_lc, float(min_lc_mm) / 1000.0)
+    st.subheader("5. Fragment population")
+
+    lc_values = _sample_lc_population(
+        n_display,
+        lc_parent,
+        min_lc_m,
+        int(seed),
+    )
+
     area_values = np.array([_area_from_lc(x) for x in lc_values])
 
-    # Allocate the modeled fragmented mass using area/mass-informed weights,
-    # then enforce conservation of the modeled mass budget.
+    # Material density affects mass assigned to a geometric fragment. Normalize
+    # to the modeled breakup mass so the displayed population conserves mass.
     raw_masses = np.maximum(area_values * density, 1e-12)
-    masses = raw_masses / raw_masses.sum() * max(effective_fragmented_mass, 1e-9)
-    densities = np.full(display_n, density)
+    masses = raw_masses / raw_masses.sum() * max(modeled_mass, 1e-9)
+    densities = np.full(n_display, density)
 
     positions, velocities, area_mass = _cloud_from_fragments(
         lc_values, masses, vrel, impact_angle, int(seed)
@@ -335,15 +473,18 @@ def render_collision_fragmentation_tab():
 
     total_displayed_mass = float(masses.sum())
     st.write(
-        f"SSBM cumulative estimate above the selected characteristic length: **{n_est:,} fragments**. "
-        f"The visualization displays **{display_n:,}** representative fragments."
+        f"**SSBM cumulative estimate:** {n_est:,} fragments ≥ {min_lc_mm:g} mm. "
+        f"**Rendered:** {n_display:,} representative fragments."
     )
 
     metrics = st.columns(4)
-    metrics[0].metric("Modeled fragmented mass", f"{effective_fragmented_mass:,.2f} kg")
-    metrics[1].metric("Displayed mass", f"{total_displayed_mass:,.2f} kg")
-    metrics[2].metric("Mass-conservation error", f"{abs(total_displayed_mass-effective_fragmented_mass):.2e} kg")
-    metrics[3].metric("Parent characteristic length", f"{effective_lc:.3f} m")
+    metrics[0].metric("SSBM collisional mass M", f"{collisional_mass:,.2f} kg")
+    metrics[1].metric("Modeled breakup mass", f"{modeled_mass:,.2f} kg")
+    metrics[2].metric("Displayed mass", f"{total_displayed_mass:,.2f} kg")
+    metrics[3].metric(
+        "Mass-conservation error",
+        f"{abs(total_displayed_mass - modeled_mass):.2e} kg",
+    )
 
     bins = [
         (">100 mm", lc_values >= 0.1),
@@ -353,34 +494,43 @@ def render_collision_fragmentation_tab():
     ]
     size_summary = pd.DataFrame({
         "Size class": [x[0] for x in bins],
-        "Displayed fragments": [int(x[1].sum()) for x in bins],
+        "Rendered fragments": [int(x[1].sum()) for x in bins],
     })
     st.dataframe(size_summary, width="stretch", hide_index=True)
 
-    st.subheader("5. 3-D SSBM fragment cloud")
-    st.plotly_chart(_fragment_scene(positions, lc_values, a_name, b_name), width="stretch")
+    st.subheader("6. 3-D SSBM fragment cloud")
+    st.plotly_chart(
+        _fragment_scene(positions, lc_values, a_name, b_name),
+        width="stretch",
+    )
 
-    st.subheader("6. Fragment properties and ORION-X priority")
-    priority = _fragment_table(lc_values, masses, densities, velocities, area_mass)
-    st.dataframe(priority.head(20), width="stretch", hide_index=True)
+    st.subheader("7. Fragment properties and ORION-X priority")
+    priority = _fragment_table(
+        lc_values, masses, densities, velocities, area_mass
+    )
+    st.dataframe(priority.head(25), width="stretch", hide_index=True)
 
-    top_score = float(priority.iloc[0]["Capture priority"]) if not priority.empty else 0.0
+    top_score = (
+        float(priority.iloc[0]["Capture priority"])
+        if not priority.empty else 0.0
+    )
     c1, c2, c3 = st.columns(3)
-    c1.metric("Displayed fragments", f"{display_n:,}")
+    c1.metric("Rendered fragments", f"{n_display:,}")
     c2.metric("Highest capture-priority score", f"{top_score:.3f}")
     c3.metric("Next ORION-X step", "Track → screen → capture")
 
     st.markdown(
-        "**ORION-X workflow:** collision detection → event-specific breakup estimate → "
-        "fragment size/A-M/ΔV population → propagate/screen fragments → recalculate collision risk → "
-        "prioritize high-risk objects → inspect → net capture → electrostatic retention → tow/deorbit."
+        "**ORION-X workflow:** collision detection → pair-specific event inputs → "
+        "SSBM breakup population → fragment size/A-M/ΔV → propagate/screen fragments → "
+        "recalculate collision risk → prioritize high-risk debris → inspect → capture → tow/deorbit."
     )
 
     with st.expander("Model basis and limitations"):
         st.markdown(
-            "- NASA Standard Breakup Model (SSBM) relationships are semi-empirical and statistical; this tab does not claim exact individual-fragment prediction.\n"
-            "- Geometry, material density, structural configuration, impact angle, and energy partition are exposed as event parameters. They modify the effective breakup population; they are not substitutes for detailed finite-element structural modeling.\n"
-            "- Characteristic length, fragment count, area-to-mass ratio, and ΔV are modeled statistically.\n"
-            "- TLE/orbital data alone do not provide CAD geometry, material layup, or structural design; use documented engineering data when available.\n"
-            "- For publication-grade validation, compare aggregate fragment-size, mass, area-to-mass, and ΔV distributions against laboratory/on-orbit breakup datasets."
+            "- NASA SSBM is a semi-empirical statistical breakup model derived from observed breakups and ground impact tests; it predicts fragment distributions, not exact individual pieces.\n"
+            "- SSBM characteristic length is based on the average of three maximum orthogonal dimensions.\n"
+            "- The standard collision power law is evaluated at the selected minimum fragment size; the previous implementation incorrectly evaluated it at the parent characteristic length, which could produce only 1–2 fragments.\n"
+            "- Pair selection now changes the automatically estimated relative orbital speed when mean-motion data are available. Exact pair-specific TCA velocity still requires SGP4 state propagation.\n"
+            "- Mass, geometry, material, and structural inputs are intentionally not fabricated from object names because TLEs do not contain those engineering properties.\n"
+            "- For higher fidelity, future versions can sample directly from SOCIT/DebriSat fragment datasets rather than only the analytic SSBM distribution."
         )
