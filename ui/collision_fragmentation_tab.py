@@ -491,8 +491,18 @@ def render_collision_fragmentation_tab():
         "Previously damaged": 0.75,
     }[structure]
 
-    geometry_profile = _geometry_profile(geometry)
-    structure_profile = _structure_profile(structure)
+    geometry_profile = {
+        "Box / spacecraft bus": {"mass_factor": 1.00, "spread": 1.00},
+        "Cylinder / rocket body": {"mass_factor": 0.92, "spread": 0.90},
+        "Panel-dominated structure": {"mass_factor": 0.80, "spread": 1.18},
+        "Other / equivalent body": {"mass_factor": 1.00, "spread": 1.00},
+    }[geometry]
+    structure_profile = {
+        "Intact / integrated": {"mass_factor": 1.00, "spread": 1.00, "anisotropy": 1.00},
+        "Bus + panels": {"mass_factor": 0.95, "spread": 1.08, "anisotropy": 1.18},
+        "Tank / rocket-body dominated": {"mass_factor": 0.90, "spread": 0.88, "anisotropy": 0.82},
+        "Previously damaged": {"mass_factor": 0.75, "spread": 1.25, "anisotropy": 1.35},
+    }[structure]
     material_profile = _material_profile(material)
 
     # Determine the catastrophic regime using the SSBM 40 J/g criterion.
