@@ -58,31 +58,91 @@ def _safe_float(row, column, default=np.nan):
         return default
 
 
-def _estimate_orbital_speed_km_s(row):
-    """Estimate circular speed from mean motion when a TLE record is available.
+def _kepler_epoch_velocity_km_s(row):
+    """Approximate the inertial velocity vector at the record epoch.
 
-    This is only a kinematic estimate used to make pair selection responsive.
-    It is not a substitute for full SGP4 relative velocity at TCA.
+    The orbital CSV contains classical mean elements, so this converts the
+    elements into a two-body ECI state at epoch. It is intentionally labeled
+    an epoch estimate: exact TCA relative velocity still requires SGP4.
     """
     if row is None:
-        return np.nan
+        return None
+
     mm = _safe_float(row, "MEAN_MOTION")
-    if not np.isfinite(mm) or mm <= 0:
-        return np.nan
-    # Mean motion rev/day -> rad/s; v = (mu*n)^(1/3).
+    e = _safe_float(row, "ECCENTRICITY")
+    inc = _safe_float(row, "INCLINATION")
+    raan = _safe_float(row, "RA_OF_ASC_NODE")
+    argp = _safe_float(row, "ARG_OF_PERICENTER")
+    M_deg = _safe_float(row, "MEAN_ANOMALY")
+
+    if not all(np.isfinite(x) for x in [mm, e, inc, raan, argp, M_deg]):
+        return None
+    if mm <= 0 or e < 0 or e >= 1:
+        return None
+
+    mu = 398600.4418  # km^3/s^2
     n = mm * 2.0 * math.pi / 86400.0
-    mu_earth = 398600.4418
-    return (mu_earth * n) ** (1.0 / 3.0)
+    a = (mu / (n * n)) ** (1.0 / 3.0)
+
+    # Solve Kepler's equation M = E - e sin(E).
+    M = math.radians(M_deg) % (2.0 * math.pi)
+    E = M
+    for _ in range(15):
+        f = E - e * math.sin(E) - M
+        fp = 1.0 - e * math.cos(E)
+        step = f / max(fp, 1e-12)
+        E -= step
+        if abs(step) < 1e-12:
+            break
+
+    r = a * (1.0 - e * math.cos(E))
+    if r <= 0:
+        return None
+
+    vp = math.sqrt(mu * a) / r
+    vx_p = -vp * math.sin(E)
+    vy_p = vp * math.sqrt(1.0 - e * e) * math.cos(E)
+
+    O = math.radians(raan)
+    i = math.radians(inc)
+    w = math.radians(argp)
+
+    # R3(Omega) R1(i) R3(omega), applied to perifocal velocity.
+    cO, sO = math.cos(O), math.sin(O)
+    ci, si = math.cos(i), math.sin(i)
+    cw, sw = math.cos(w), math.sin(w)
+
+    R11 = cO * cw - sO * sw * ci
+    R12 = -cO * sw - sO * cw * ci
+    R21 = sO * cw + cO * sw * ci
+    R22 = -sO * sw + cO * cw * ci
+    R31 = sw * si
+    R32 = cw * si
+
+    return np.array([
+        R11 * vx_p + R12 * vy_p,
+        R21 * vx_p + R22 * vy_p,
+        R31 * vx_p + R32 * vy_p,
+    ])
 
 
 def _pair_relative_velocity_estimate(row_a, row_b):
-    va = _estimate_orbital_speed_km_s(row_a)
-    vb = _estimate_orbital_speed_km_s(row_b)
-    if not (np.isfinite(va) and np.isfinite(vb)):
-        return np.nan
-    # Conservative pair-specific first-order estimate. Exact relative velocity
-    # requires vector state propagation to TCA.
-    return min(15.0, max(0.1, va + vb))
+    va_vec = _kepler_epoch_velocity_km_s(row_a)
+    vb_vec = _kepler_epoch_velocity_km_s(row_b)
+
+    if va_vec is not None and vb_vec is not None:
+        # Pair-specific relative velocity: |v_A - v_B|.
+        return max(0.01, float(np.linalg.norm(va_vec - vb_vec))), "two-body epoch state"
+
+    # Fallback when an orbital element is unavailable.
+    va = _safe_float(row_a, "MEAN_MOTION")
+    vb = _safe_float(row_b, "MEAN_MOTION")
+    if np.isfinite(va) and np.isfinite(vb):
+        va_km_s = (398600.4418 * (va * 2.0 * math.pi / 86400.0)) ** (1.0 / 3.0)
+        vb_km_s = (398600.4418 * (vb * 2.0 * math.pi / 86400.0)) ** (1.0 / 3.0)
+        return max(0.01, abs(va_km_s - vb_km_s)), "mean-motion fallback"
+
+    return np.nan, "unavailable"
 
 
 def _collision_energy(m1_kg, m2_kg, relative_velocity_km_s):
@@ -252,7 +312,7 @@ def _fragment_scene(positions, lc_m, target_a, target_b):
 def render_collision_fragmentation_tab():
     st.header("💥 Collision & Fragmentation")
     st.caption(
-        "NASA SSBM-based breakup estimate using pair-specific orbital kinematics "
+        "NASA SSBM-based breakup estimate using pair-specific orbital-element kinematics "
         "plus explicit mass, geometry, material, structural, and impact assumptions."
     )
 
@@ -282,7 +342,7 @@ def render_collision_fragmentation_tab():
 
     row_a = _object_row(objects, a_name, name_col)
     row_b = _object_row(objects, b_name, name_col)
-    pair_v = _pair_relative_velocity_estimate(row_a, row_b)
+    pair_v, pair_v_source = _pair_relative_velocity_estimate(row_a, row_b)
 
     pair_id_a = _safe_float(row_a, id_col) if row_a is not None and id_col else np.nan
     pair_id_b = _safe_float(row_b, id_col) if row_b is not None and id_col else np.nan
@@ -311,14 +371,15 @@ def render_collision_fragmentation_tab():
             min_value=0.01,
             value=round(default_v, 2),
             step=0.5,
-            key="frag_vrel",
-            help="Auto-filled from the selected pair's mean-motion-derived speeds when available. Exact TCA relative velocity requires SGP4 state propagation.",
+            key=f"frag_vrel_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}_{int(pair_id_b) if np.isfinite(pair_id_b) else b_name}",
+            help="Auto-filled from the selected pair's orbital-element state vectors. Exact TCA relative velocity requires SGP4 state propagation.",
         )
 
     if np.isfinite(pair_v):
         st.info(
-            f"Pair-specific orbital-speed estimate: {pair_v:.2f} km/s. "
-            "Change the input manually if you have a validated TCA relative velocity."
+            f"Pair-specific relative velocity at the orbital-record epoch: {pair_v:.3f} km/s "
+            f"({pair_v_source}). Exact TCA relative velocity still requires SGP4 propagation. "
+            "Change the input manually if you have a validated TCA value."
         )
 
     st.subheader("3. Geometry, material, and structural design")
@@ -437,6 +498,10 @@ def render_collision_fragmentation_tab():
     n_display = int(np.clip(n_est, 10, 5000))
 
     st.subheader("4. SSBM collision regime and energetics")
+    st.caption(
+        f"Pair input used in this run: {a_name} + {b_name} | "
+        f"relative velocity = {vrel:.3f} km/s | velocity source = {pair_v_source}"
+    )
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total parent mass", f"{m1 + m2:,.1f} kg")
     c2.metric("Collision energy", f"{energy / 1e9:,.2f} GJ")
@@ -474,7 +539,9 @@ def render_collision_fragmentation_tab():
     total_displayed_mass = float(masses.sum())
     st.write(
         f"**SSBM cumulative estimate:** {n_est:,} fragments ≥ {min_lc_mm:g} mm. "
-        f"**Rendered:** {n_display:,} representative fragments."
+        f"**Rendered:** {n_display:,} representative fragments. "
+        "The renderer caps the plotted sample at 5,000 for browser performance; "
+        "the cumulative SSBM count above is the model estimate."
     )
 
     metrics = st.columns(4)
@@ -529,7 +596,9 @@ def render_collision_fragmentation_tab():
         st.markdown(
             "- NASA SSBM is a semi-empirical statistical breakup model derived from observed breakups and ground impact tests; it predicts fragment distributions, not exact individual pieces.\n"
             "- SSBM characteristic length is based on the average of three maximum orthogonal dimensions.\n"
-            "- The standard collision power law is evaluated at the selected minimum fragment size; the previous implementation incorrectly evaluated it at the parent characteristic length, which could produce only 1–2 fragments.\n"
+            "- The cumulative collision power law is evaluated at the selected minimum fragment size. "
+            "A 1 mm lower bound can legitimately produce a very large population, so the UI reports "
+            "the full cumulative estimate and only renders a capped representative sample.\n"
             "- Pair selection now changes the automatically estimated relative orbital speed when mean-motion data are available. Exact pair-specific TCA velocity still requires SGP4 state propagation.\n"
             "- Mass, geometry, material, and structural inputs are intentionally not fabricated from object names because TLEs do not contain those engineering properties.\n"
             "- For higher fidelity, future versions can sample directly from SOCIT/DebriSat fragment datasets rather than only the analytic SSBM distribution."
