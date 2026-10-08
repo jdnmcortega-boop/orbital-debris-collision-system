@@ -358,7 +358,7 @@ def render_collision_fragmentation_tab():
     c1, c2, c3 = st.columns(3)
     with c1:
         m1 = st.number_input(
-            f"{a_name} mass (kg)", min_value=0.01, value=500.0, step=10.0, key="frag_m1"
+            f"{a_name} mass (kg)", min_value=0.01, value=500.0, step=10.0, key=f"frag_m1_{int(pair_id_a) if np.isfinite(pair_id_a) else a_name}"
         )
     with c2:
         m2 = st.number_input(
