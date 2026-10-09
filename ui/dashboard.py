@@ -26,13 +26,6 @@ import config
 from modules import data_loader
 from modules import sgp4_propagation
 from modules import visualization as viz
-from modules import classical_security
-from modules import qkd
-from modules.live_orbit_animation import render_live_orbit_animation
-from ui.historical_live_dashboard import render_historical_tab, render_live_tab
-from ui.historical_rocket_tab import render_historical_rocket_tab
-from ui.prototype_simulation_tab import render_prototype_simulation_tab
-from ui.collision_fragmentation_tab import render_collision_fragmentation_tab
 
 
 st.set_page_config(
@@ -206,10 +199,13 @@ def render_orbital_tracker():
         st.dataframe(positions.head(1000), width="stretch", height=300)
 
     st.divider()
+    from modules.live_orbit_animation import render_live_orbit_animation
     render_live_orbit_animation()
 
 
 def render_qkd_classical():
+    from modules import classical_security, qkd
+
     st.header("🔐 QKD vs Classical Security")
     st.caption(
         "The same collision-warning message is protected using a classical ECDH/AES-GCM baseline "
@@ -304,34 +300,46 @@ def render_qkd_classical():
 def main():
     st.title("🛰️ ORION-X")
     st.caption("Orbital Risk & Intelligence Operations Network")
-    st.caption("PAST: historical replay  |  PAST-ROCKET: documented rocket-body collisions  |  PRESENT: live forecasting  |  TRACK: current orbit state  |  PROTOTYPE: 3-D air-bearing capture test  |  FRAGMENT: collision and fragmentation analysis  |  SECURITY: QKD vs classical")
+    st.caption(
+        "Choose one workspace at a time. Loading only the selected workspace reduces "
+        "startup time and prevents every research module from running on every rerun."
+    )
 
-    overview_tab, historical_tab, rocket_tab, live_tab, tracker_tab, prototype_tab, fragmentation_tab, security_tab = st.tabs([
-        "🏠 Overview",
-        "⏪ Historical Replay / Validation",
-        "🚀 Historical Rocket Collisions",
-        "📡 Live Tracker / 30-Day Forecast",
-        "🌍 Orbital Tracker",
-        "🧪 Prototype Simulation",
-        "💥 Collision & Fragmentation",
-        "🔐 QKD vs Classical",
-    ])
+    page = st.selectbox(
+        "ORION-X workspace",
+        [
+            "🏠 Overview",
+            "⏪ Historical Replay / Validation",
+            "🚀 Historical Rocket Collisions",
+            "📡 Live Tracker / 30-Day Forecast",
+            "🌍 Orbital Tracker",
+            "🧪 Prototype Simulation",
+            "💥 Collision & Fragmentation",
+            "🔐 QKD vs Classical",
+        ],
+        key="orionx_workspace",
+    )
 
-    with overview_tab:
+    if page == "🏠 Overview":
         render_overview()
-    with historical_tab:
+    elif page == "⏪ Historical Replay / Validation":
+        from ui.historical_live_dashboard import render_historical_tab
         render_historical_tab()
-    with rocket_tab:
+    elif page == "🚀 Historical Rocket Collisions":
+        from ui.historical_rocket_tab import render_historical_rocket_tab
         render_historical_rocket_tab()
-    with live_tab:
+    elif page == "📡 Live Tracker / 30-Day Forecast":
+        from ui.historical_live_dashboard import render_live_tab
         render_live_tab()
-    with tracker_tab:
+    elif page == "🌍 Orbital Tracker":
         render_orbital_tracker()
-    with prototype_tab:
+    elif page == "🧪 Prototype Simulation":
+        from ui.prototype_simulation_tab import render_prototype_simulation_tab
         render_prototype_simulation_tab()
-    with fragmentation_tab:
+    elif page == "💥 Collision & Fragmentation":
+        from ui.collision_fragmentation_tab import render_collision_fragmentation_tab
         render_collision_fragmentation_tab()
-    with security_tab:
+    elif page == "🔐 QKD vs Classical":
         render_qkd_classical()
 
 
