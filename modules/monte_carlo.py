@@ -105,6 +105,7 @@ def estimate_collision_probability(
         ci_low
         effective_sample_size
         log10_probability (retains rare-event scale when float probability underflows)
+        estimator_mode (deterministic, direct_mc, or importance_sampling)
     """
     default_sigma = float(getattr(config, "POSITION_UNCERTAINTY_KM", 1.0))
     sigma_a_km = default_sigma if sigma_a_km is None else float(sigma_a_km)
@@ -142,7 +143,7 @@ def estimate_collision_probability(
     if combined_sigma <= 0:
         probability = 1.0 if miss_distance_km <= hard_body_radius_km else 0.0
         log10_probability = float('-inf') if probability == 0.0 else 0.0
-        return probability, np.nan, n_samples, probability, probability, float(n_samples), log10_probability
+        return probability, np.nan, n_samples, probability, probability, float(n_samples), log10_probability, "deterministic"
 
     # In the isotropic encounter-plane model, only the magnitude of the
     # nominal relative displacement matters. Put that displacement on x.
@@ -182,6 +183,7 @@ def estimate_collision_probability(
             ci_low,
             float(n_samples),
             log10_probability,
+            "direct_mc",
         )
 
     # Uniform disk proposal centered on the collision point.
@@ -241,6 +243,7 @@ def estimate_collision_probability(
         ci_low,
         float(effective_sample_size),
         log10_probability,
+        "importance_sampling",
     )
 
 
@@ -318,6 +321,7 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
     ci_low_list = []
     ess_list = []
     method_list = []
+    estimator_mode_list = []
     log10_probability_list = []
     underflow_list = []
     sigma_a_list = []
@@ -353,6 +357,7 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
             ci_low,
             effective_sample_size,
             log10_probability,
+            estimator_mode,
         ) = estimate_collision_probability(
             pos_a,
             pos_b,
@@ -374,6 +379,7 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
         ci_low_list.append(ci_low)
         ess_list.append(effective_sample_size)
         method_list.append(config.MC_METHOD)
+        estimator_mode_list.append(estimator_mode)
         log10_probability_list.append(log10_probability)
         underflow_list.append(probability == 0.0 and np.isfinite(log10_probability))
         sigma_a_list.append(sigma_a)
@@ -402,6 +408,7 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
     results["MC_CI_HIGH"] = upper_95_list
     results["MC_EFFECTIVE_SAMPLE_SIZE"] = ess_list
     results["MC_METHOD"] = method_list
+    results["MC_ESTIMATOR_MODE"] = estimator_mode_list
     results["MC_LOG10_PROBABILITY"] = log10_probability_list
     results["MC_PROBABILITY_UNDERFLOW"] = underflow_list
     results["INCLINATION_DIFFERENCE_DEG"] = inclination_difference_list
@@ -460,6 +467,7 @@ def run_and_save(output_path=None):
                 "SIGMA_A_KM",
                 "SIGMA_B_KM",
                 "MC_METHOD",
+                "MC_ESTIMATOR_MODE",
                 "MC_SAMPLES",
                 "MC_EFFECTIVE_SAMPLE_SIZE",
                 "COLLISION_PROBABILITY_MC",
