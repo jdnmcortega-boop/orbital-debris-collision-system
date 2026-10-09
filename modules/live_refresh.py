@@ -11,9 +11,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 import json
-import time
 
 import pandas as pd
 
@@ -60,50 +58,31 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
     frames = []
     for group in CELESTRAK_GROUPS:
         _progress(progress_callback, f"Downloading current CelesTrak group: {group}")
-        # Try both official CelesTrak hostnames and retry transient timeouts.
-        # Streamlit Cloud can have intermittent outbound-network delays.
-        hosts = ("https://celestrak.org", "https://www.celestrak.org")
-        payload = None
-        errors = []
-        for host in hosts:
-            url = f"{host}/NORAD/elements/gp.php?GROUP={group}&FORMAT=CSV"
-            for attempt in range(3):
-                request = Request(
-                    url,
-                    headers={
-                        "User-Agent": "ORION-X-research-dashboard/1.0",
-                        "Accept": "text/csv,*/*",
-                    },
-                )
-                try:
-                    with urlopen(request, timeout=60) as response:
-                        candidate = response.read()
-                    if not candidate.strip():
-                        raise RuntimeError("CelesTrak returned an empty response.")
-                    payload = candidate
-                    break
-                except (HTTPError, URLError, TimeoutError, OSError, RuntimeError) as exc:
-                    errors.append(f"{host} attempt {attempt + 1}/3: {exc}")
-                    if attempt < 2:
-                        _progress(
-                            progress_callback,
-                            f"{group}: request timed out or failed; retrying "
-                            f"({attempt + 2}/3)",
-                        )
-                        time.sleep(2 * (attempt + 1))
-                except Exception as exc:
-                    errors.append(f"{host} attempt {attempt + 1}/3: {exc}")
-                    if attempt < 2:
-                        time.sleep(2 * (attempt + 1))
-            if payload is not None:
-                break
-
-        if payload is None:
-            details = " | ".join(errors[-4:])
+        # Use the canonical endpoint and make one request per group per refresh.
+        # CelesTrak updates GP data about every two hours and may block repeated
+        # requests; repeated retries can make a temporary timeout worse.
+        url = (
+            "https://celestrak.org/NORAD/elements/gp.php"
+            f"?GROUP={group}&FORMAT=CSV"
+        )
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "ORION-X-research-dashboard/1.0",
+                "Accept": "text/csv,*/*",
+            },
+        )
+        try:
+            with urlopen(request, timeout=45) as response:
+                payload = response.read()
+        except Exception as exc:
             raise RuntimeError(
-                f"Could not download current CelesTrak group {group} after retries. "
-                f"Check outbound access or try again later. Details: {details}"
-            )
+                f"Could not download current CelesTrak group {group}. "
+                "The request timed out or the host was unreachable. "
+                "Do not repeatedly click refresh; check the app deployment/network "
+                "and try again later. Details: "
+                f"{exc}"
+            ) from exc
 
         if not payload.strip():
             continue
