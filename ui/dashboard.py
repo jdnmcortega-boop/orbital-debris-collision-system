@@ -26,6 +26,7 @@ import config
 from modules import data_loader
 from modules import sgp4_propagation
 from modules import visualization as viz
+from modules.live_refresh import refresh_all_live_results
 
 
 st.set_page_config(
@@ -80,6 +81,61 @@ def render_overview():
         "Detection → propagation → conjunction screening → collision probability → "
         "risk forecasting → secure warning communication"
     )
+
+    with st.expander("🔄 Refresh all current/live results", expanded=False):
+        st.write(
+            "Downloads fresh CelesTrak orbital elements for the project's curated "
+            "debris catalog, then rebuilds the 30-day propagation, conjunction, "
+            "Monte Carlo, risk prediction, QAE comparison, false-positive, re-entry, "
+            "and warning-security outputs. Historical archives and fixed benchmark "
+            "experiments are preserved."
+        )
+        st.warning(
+            "This can take several minutes. Keep this page open until the run finishes. "
+            "A failed data download will not replace the existing orbital input file."
+        )
+        if st.button(
+            "♻️ Fetch current orbital data and replace live results",
+            key="refresh_all_current_results",
+            type="primary",
+            width="stretch",
+        ):
+            try:
+                with st.status("Starting ORION-X live refresh…", expanded=True) as status:
+                    summary = refresh_all_live_results(
+                        progress_callback=lambda message: status.update(
+                            label=message,
+                            state="running",
+                        )
+                    )
+                    status.update(
+                        label="ORION-X live refresh completed",
+                        state="complete",
+                        expanded=False,
+                    )
+                st.session_state["live_refresh_summary"] = summary
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Live refresh failed: {exc}")
+                st.caption(
+                    "Check Manage app → Logs for details. Historical archives and "
+                    "benchmark files are not changed by this refresh."
+                )
+
+    refresh_summary = st.session_state.get("live_refresh_summary")
+    if refresh_summary:
+        st.subheader("Latest live refresh")
+        a, b, c, d = st.columns(4)
+        a.metric("Current objects", refresh_summary.get("orbital_objects", 0))
+        b.metric("Propagated states", f"{refresh_summary.get('propagated_states', 0):,}")
+        c.metric("Conjunctions", refresh_summary.get("conjunctions", 0))
+        d.metric("MC result rows", refresh_summary.get("monte_carlo_rows", 0))
+        st.caption(
+            f"Forecast start: {refresh_summary.get('forecast_start_utc', '—')} | "
+            f"Latest source epoch: {refresh_summary.get('data_epoch_latest_utc', '—')} | "
+            f"Status: {refresh_summary.get('status', 'unknown')}"
+        )
 
     orbital = load_orbital_data()
     conjunction_path = Path(getattr(config, "CONJUNCTIONS_FILE", PROJECT_ROOT / "data" / "processed" / "conjunctions.csv"))
