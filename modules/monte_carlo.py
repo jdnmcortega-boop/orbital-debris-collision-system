@@ -149,6 +149,32 @@ def estimate_collision_probability(
 
     rng = np.random.default_rng(random_seed)
 
+    # For non-rare encounters, sample from the actual relative Gaussian.
+    # This avoids the failure of a uniform-disk proposal when sigma is tiny:
+    # almost none of the disk proposal points land in the narrow Gaussian peak.
+    # Rare events use importance sampling below.
+    if d <= radius + 3.0 * combined_sigma:
+        x_direct = d + rng.normal(0.0, combined_sigma, size=n_samples)
+        y_direct = rng.normal(0.0, combined_sigma, size=n_samples)
+        hit_count = int(np.count_nonzero(x_direct ** 2 + y_direct ** 2 <= radius ** 2))
+        probability = hit_count / float(n_samples)
+        if hit_count == 0:
+            ci_low = 0.0
+            ci_high = _wilson_upper_for_zero_hits(n_samples)
+        else:
+            standard_error = float(np.sqrt(probability * (1.0 - probability) / n_samples))
+            ci_low, ci_high = _normal_confidence_interval(probability, standard_error)
+        log10_probability = float(np.log10(probability)) if probability > 0 else float('-inf')
+        return (
+            probability,
+            hit_count,
+            n_samples,
+            ci_high,
+            ci_low,
+            float(hit_count),
+            log10_probability,
+        )
+
     # Uniform disk proposal centered on the collision point.
     radial = radius * np.sqrt(rng.random(n_samples))
     angle = 2.0 * np.pi * rng.random(n_samples)
