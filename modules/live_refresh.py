@@ -65,35 +65,39 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         # CelesTrak supports NAME queries. Request only the debris family needed
         # instead of the full GROUP response, which can be slow from hosted apps.
         query = urlencode({"NAME": name_query, "FORMAT": "CSV"})
-        url = f"https://celestrak.org/NORAD/elements/gp.php?{query}"
-        request = Request(
-            url,
-            headers={
-                "User-Agent": "ORION-X-research-dashboard/1.0",
-                "Accept": "text/csv,*/*",
-            },
+        # Some hosted environments time out against one hostname while the
+        # www alias remains reachable. Try both official CelesTrak hostnames
+        # before marking this debris family unavailable.
+        base_urls = (
+            f"https://celestrak.org/NORAD/elements/gp.php?{query}",
+            f"https://www.celestrak.org/NORAD/elements/gp.php?{query}",
         )
         payload = None
         last_error = None
-        # Hosted Streamlit instances can occasionally experience transient
-        # network stalls. Retry once with a shorter per-attempt timeout.
-        for attempt in range(1, 3):
+        for attempt, url in enumerate(base_urls, start=1):
             try:
                 _progress(
                     progress_callback,
-                    f"Requesting {group} from CelesTrak (attempt {attempt}/2)",
+                    f"Requesting {group} from CelesTrak host {attempt}/2",
                 )
-                with urlopen(request, timeout=20) as response:
+                request = Request(
+                    url,
+                    headers={
+                        "User-Agent": "ORION-X-research-dashboard/1.0",
+                        "Accept": "text/csv,*/*",
+                    },
+                )
+                with urlopen(request, timeout=12) as response:
                     payload = response.read()
                 if not payload.strip():
                     raise RuntimeError("CelesTrak returned an empty response.")
                 break
             except Exception as exc:
                 last_error = exc
-                if attempt < 2:
+                if attempt < len(base_urls):
                     _progress(
                         progress_callback,
-                        f"CelesTrak request for {group} failed; retrying once…",
+                        f"CelesTrak host failed for {group}; trying its www alias…",
                     )
 
         if payload is None or not payload.strip():
