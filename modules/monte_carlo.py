@@ -156,7 +156,13 @@ def estimate_collision_probability(
     # This avoids the failure of a uniform-disk proposal when sigma is tiny:
     # almost none of the disk proposal points land in the narrow Gaussian peak.
     # Rare events use importance sampling below.
-    if d <= radius + 3.0 * combined_sigma:
+    log_small_disk_approx = (
+        np.log(radius ** 2 / (2.0 * combined_sigma ** 2))
+        - (d ** 2) / (2.0 * combined_sigma ** 2)
+    )
+    direct_mc_is_resolvable = log_small_disk_approx >= np.log(10.0 / n_samples)
+    nominally_well_inside = d + 4.0 * combined_sigma <= radius
+    if direct_mc_is_resolvable or nominally_well_inside:
         x_direct = d + rng.normal(0.0, combined_sigma, size=n_samples)
         y_direct = rng.normal(0.0, combined_sigma, size=n_samples)
         hit_count = int(np.count_nonzero(x_direct ** 2 + y_direct ** 2 <= radius ** 2))
