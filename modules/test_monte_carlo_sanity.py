@@ -24,12 +24,12 @@ def run_case(label, separation_km, combined_sigma_km, n_samples=100_000):
         hard_body_radius_km=config.HARD_BODY_RADIUS_KM,
         random_seed=12345,
     )
-    probability, _hits, n, upper, lower, ess, log10p = result
+    probability, _hits, n, upper, lower, ess, log10p, mode = result
     print(
         f"{label:40s} d={separation_km:8.4f} km "
         f"sigma={combined_sigma_km:7.4f} km "
         f"P={probability:.6e} log10(P)={log10p:9.3f} "
-        f"CI=[{lower:.3e}, {upper:.3e}] ESS={ess:.0f}/{n}"
+        f"CI=[{lower:.3e}, {upper:.3e}] ESS={ess:.0f}/{n} mode={mode}"
     )
     return probability, log10p
 
