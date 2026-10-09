@@ -53,7 +53,7 @@ POSITION_UNCERTAINTY_KM = 10.0
 # zero-hit problem of naive 3-D brute-force MC at ~1e-6 probabilities.
 MC_SAMPLES = 1000000
 HARD_BODY_RADIUS_KM = 0.02
-MC_METHOD = "encounter_plane_importance_sampling"
+MC_METHOD = "hybrid_direct_mc_and_encounter_plane_importance_sampling"
 
 # ============================================================
 # QAE BENCHMARK SETTINGS
