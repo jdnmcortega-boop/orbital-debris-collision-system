@@ -59,6 +59,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         raise ValueError("No valid NORAD catalog IDs exist in the current dataset.")
 
     frames = []
+    download_errors = []
     for group, name_query in CELESTRAK_QUERIES:
         _progress(progress_callback, f"Downloading current CelesTrak name query: {group}")
         # CelesTrak supports NAME queries. Request only the debris family needed
@@ -96,13 +97,15 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
                     )
 
         if payload is None or not payload.strip():
-            raise RuntimeError(
-                f"Could not download current CelesTrak debris query {group} after "
-                "2 attempts. The existing orbital input file was not replaced. "
-                "This usually indicates a temporary CelesTrak/network timeout; "
-                "try again later. Last error: "
-                f"{last_error}"
-            ) from last_error
+            # A single CelesTrak query can time out independently. Try the
+            # remaining families before deciding whether enough fresh objects
+            # are available; never replace the input file with partial data.
+            download_errors.append(f"{group}: {last_error}")
+            _progress(
+                progress_callback,
+                f"Skipping unavailable query {group}; trying the next debris family",
+            )
+            continue
 
         if not payload.strip():
             continue
@@ -128,9 +131,11 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
             frames.append(group_df)
 
     if not frames:
+        details = " | ".join(download_errors) if download_errors else "No CSV rows returned."
         raise RuntimeError(
-            "CelesTrak returned no objects matching the project's curated NORAD IDs. "
-            "The existing orbital file was not replaced."
+            "All configured CelesTrak debris queries failed. The existing orbital "
+            "file was not replaced. Try again later or use a verified current TLE CSV. "
+            f"Details: {details}"
         )
 
     fresh = pd.concat(frames, ignore_index=True, sort=False)
@@ -189,7 +194,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
             ["_IS_EXISTING", "EPOCH", "NORAD_CAT_ID"],
             ascending=[False, False, True],
         )
-        selected_frames.append(family.head(60))
+        selected_frames.append(family.head(90))
 
     if not selected_frames:
         raise RuntimeError(
@@ -198,14 +203,26 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         )
 
     fresh = pd.concat(selected_frames, ignore_index=True, sort=False)
+
+    # Keep the live dataset within the intended 150–180 object range. Raising
+    # the per-family cap to 90 allows two healthy queries to supply 150+ objects
+    # if the third CelesTrak query is temporarily unreachable.
+    if len(fresh) > 180:
+        fresh["_IS_EXISTING"] = fresh["NORAD_CAT_ID"].isin(curated_ids)
+        fresh = fresh.sort_values(
+            ["_IS_EXISTING", "EPOCH", "NORAD_CAT_ID"],
+            ascending=[False, False, True],
+        ).head(180)
+
     fresh = fresh.drop(columns=["_SOURCE_GROUP", "_IS_EXISTING"], errors="ignore")
     fresh = fresh.sort_values("NORAD_CAT_ID").reset_index(drop=True)
 
     if len(fresh) < 150:
         raise RuntimeError(
-            f"Only {len(fresh)} valid debris objects were available across the three "
-            "CelesTrak families; at least 150 are required. The existing orbital "
-            "file was not replaced."
+            f"Only {len(fresh)} valid debris objects were available from the reachable "
+            "CelesTrak families; at least 150 are required. The existing orbital file "
+            "was not replaced. "
+            + (("Download errors: " + " | ".join(download_errors)) if download_errors else "")
         )
 
     # Keep the required schema first; retain extra source metadata after it.
