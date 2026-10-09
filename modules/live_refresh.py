@@ -1,9 +1,9 @@
 """Refresh current orbital data and rebuild all present-day ORION-X outputs.
 
 Historical replay archives and fixed benchmark experiments are intentionally
-left untouched. Live data is refreshed from CelesTrak and limited to the
-project's existing curated NORAD catalog to avoid an accidental all-pairs
-explosion from importing thousands of debris objects.
+left untouched. Live data is refreshed from three debris families and bounded
+to a balanced sample of up to 180 objects to keep all-pairs screening practical.
+The current input file is replaced only after fresh data passes validation.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def _progress(callback, message):
         callback(message)
 
 def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None):
-    """Fetch current CelesTrak group CSVs and refresh only curated NORAD IDs."""
+    """Fetch a balanced, validated sample of current objects from three debris families."""
     if existing_df is None:
         existing_df = data_loader.load_orbital_data()
 
@@ -121,9 +121,9 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         group_df["NORAD_CAT_ID"] = pd.to_numeric(
             group_df["NORAD_CAT_ID"], errors="coerce"
         )
-        group_df = group_df[
-            group_df["NORAD_CAT_ID"].isin(curated_ids)
-        ].copy()
+        # Keep the complete returned debris family for selection below instead
+        # of filtering it to the old 60-object catalog.
+        group_df["_SOURCE_GROUP"] = group
         if not group_df.empty:
             frames.append(group_df)
 
@@ -175,10 +175,37 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         .reset_index(drop=True)
     )
 
-    if len(fresh) < min(5, len(curated_ids)):
+    # Select up to 60 objects per debris family (180 total). Preserve catalog
+    # IDs already used by the project first, then fill each family using the
+    # most recently updated valid orbital elements. This keeps the selection
+    # reproducible and prevents importing thousands of objects accidentally.
+    selected_frames = []
+    for group, _name_query in CELESTRAK_QUERIES:
+        family = fresh[fresh["_SOURCE_GROUP"] == group].copy()
+        if family.empty:
+            continue
+        family["_IS_EXISTING"] = family["NORAD_CAT_ID"].isin(curated_ids)
+        family = family.sort_values(
+            ["_IS_EXISTING", "EPOCH", "NORAD_CAT_ID"],
+            ascending=[False, False, True],
+        )
+        selected_frames.append(family.head(60))
+
+    if not selected_frames:
         raise RuntimeError(
-            f"Only {len(fresh)} curated objects could be refreshed from CelesTrak; "
+            "CelesTrak returned no valid objects from the configured debris families; "
             "the existing orbital file was not replaced."
+        )
+
+    fresh = pd.concat(selected_frames, ignore_index=True, sort=False)
+    fresh = fresh.drop(columns=["_SOURCE_GROUP", "_IS_EXISTING"], errors="ignore")
+    fresh = fresh.sort_values("NORAD_CAT_ID").reset_index(drop=True)
+
+    if len(fresh) < 150:
+        raise RuntimeError(
+            f"Only {len(fresh)} valid debris objects were available across the three "
+            "CelesTrak families; at least 150 are required. The existing orbital "
+            "file was not replaced."
         )
 
     # Keep the required schema first; retain extra source metadata after it.
