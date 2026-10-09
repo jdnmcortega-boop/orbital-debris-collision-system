@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 import sys
+import importlib
 
 import pandas as pd
 import streamlit as st
@@ -26,7 +27,7 @@ import config
 from modules import data_loader
 from modules import sgp4_propagation
 from modules import visualization as viz
-from modules.live_refresh import refresh_all_live_results
+from modules import live_refresh
 
 
 st.set_page_config(
@@ -83,8 +84,8 @@ def render_overview():
     )
 
     st.caption(
-        "Build marker: live-refresh-diagnostic-2026-10-09 | "
-        "If this text is missing, Streamlit is not running the latest main-branch dashboard."
+        "Build marker: live-refresh-hot-reload-2026-10-09b | "
+        "Live-refresh module: modules.live_refresh (reload-on-click enabled)."
     )
 
     with st.expander("🔄 Refresh all current/live results", expanded=False):
@@ -106,8 +107,13 @@ def render_overview():
             width="stretch",
         ):
             try:
+                # Reload the live-refresh module when the button is clicked so
+                # the running Streamlit process does not keep an older imported
+                # function after a repository update.
+                importlib.invalidate_caches()
+                importlib.reload(live_refresh)
                 with st.status("Starting ORION-X live refresh…", expanded=True) as status:
-                    summary = refresh_all_live_results(
+                    summary = live_refresh.refresh_all_live_results(
                         progress_callback=lambda message: status.update(
                             label=message,
                             state="running",
