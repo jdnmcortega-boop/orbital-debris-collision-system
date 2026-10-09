@@ -114,6 +114,19 @@ def render_overview():
                         expanded=False,
                     )
                 st.session_state["live_refresh_summary"] = summary
+                # Drop in-memory copies so the next render cannot resurrect
+                # results from before this refresh (especially when there are
+                # now zero conjunctions and old output files were removed).
+                for stale_key in (
+                    "live_hybrid_mc_result",
+                    "live_hybrid_mc_timestamp",
+                    "live_positions",
+                    "live_failed",
+                    "live_failed_objects",
+                    "tracker_positions",
+                    "tracker_failed",
+                ):
+                    st.session_state.pop(stale_key, None)
                 st.cache_data.clear()
                 st.rerun()
             except Exception as exc:
