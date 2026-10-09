@@ -174,14 +174,18 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
     temp_path.replace(config.ORBITAL_DATA_FILE)
     return fresh
 
-def _clear_live_outputs():
-    """Remove stale derived LIVE outputs when the new forecast has no conjunctions."""
+def _clear_live_outputs(write_empty_warning=True):
+    """Remove stale current-data outputs so old results cannot masquerade as fresh."""
     paths = [
+        config.PROPAGATED_GRID_FILE,
+        config.CONJUNCTIONS_FILE,
         config.RESULTS_DIR / "monte_carlo_results.csv",
         config.RESULTS_DIR / "predictions.csv",
         config.RESULTS_DIR / "qae_comparison.csv",
         config.RESULTS_DIR / "false_positive_analysis.csv",
         config.RESULTS_DIR / "reentry_analysis.csv",
+        config.RESULTS_DIR / "classical_security_results.json",
+        config.RESULTS_DIR / "qkd_results.json",
     ]
     for path in paths:
         try:
@@ -207,6 +211,11 @@ def refresh_all_live_results(progress_callback=None):
         existing_df=old_df,
         progress_callback=progress_callback,
     )
+
+    # Fresh input is now validated and safely written. Clear every derived
+    # current-data output before rebuilding so a later calculation failure
+    # cannot leave yesterday's results looking current.
+    _clear_live_outputs(write_empty_warning=False)
 
     # Re-anchor this forecast at the actual refresh time, not the app boot time.
     config.GRID_START = datetime.now(timezone.utc)
