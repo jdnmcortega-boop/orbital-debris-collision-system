@@ -244,6 +244,12 @@ def refresh_all_live_results(progress_callback=None):
         conjunctions.to_csv(config.CONJUNCTIONS_FILE, index=False)
         _progress(
             progress_callback,
+            "Refreshing warning-security outputs for the current no-conjunction state",
+        )
+        classical_security.run_and_save()
+        qkd.run_and_save(n_qubits=512)
+        _progress(
+            progress_callback,
             "Refresh complete: no current pairs passed the screening threshold; stale risk outputs cleared",
         )
         return {
