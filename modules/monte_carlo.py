@@ -77,6 +77,7 @@ def estimate_collision_probability(
     n_samples=None,
     hard_body_radius_km=None,
     random_seed=None,
+    relative_velocity_vector=None,
 ):
     """
     Estimate collision probability with encounter-plane importance sampling.
@@ -100,6 +101,7 @@ def estimate_collision_probability(
         upper_95_probability
         ci_low
         effective_sample_size
+        log10_probability (retains rare-event scale when float probability underflows)
     """
     default_sigma = float(getattr(config, "POSITION_UNCERTAINTY_KM", 1.0))
     sigma_a_km = default_sigma if sigma_a_km is None else float(sigma_a_km)
@@ -119,12 +121,25 @@ def estimate_collision_probability(
         raise ValueError("pos_a and pos_b must each contain exactly three coordinates [X, Y, Z].")
 
     relative_vector = pos_a - pos_b
+    # Project the relative position into the plane perpendicular to relative
+    # velocity. This removes residual along-track separation caused by a
+    # discrete propagation grid when the sampled timestamp is near, but not
+    # exactly at, TCA. Positions must be in the same inertial frame and km.
+    if relative_velocity_vector is not None:
+        relative_velocity_vector = np.asarray(relative_velocity_vector, dtype=float)
+        if relative_velocity_vector.shape != (3,) or not np.all(np.isfinite(relative_velocity_vector)):
+            raise ValueError("relative_velocity_vector must be a finite 3-vector in km/s.")
+        speed = float(np.linalg.norm(relative_velocity_vector))
+        if speed > 0.0:
+            v_hat = relative_velocity_vector / speed
+            relative_vector = relative_vector - np.dot(relative_vector, v_hat) * v_hat
     miss_distance_km = float(np.linalg.norm(relative_vector))
     combined_sigma = float(np.sqrt(sigma_a_km ** 2 + sigma_b_km ** 2))
 
     if combined_sigma <= 0:
         probability = 1.0 if miss_distance_km <= hard_body_radius_km else 0.0
-        return probability, np.nan, n_samples, probability, probability, float(n_samples)
+        log10_probability = float('-inf') if probability == 0.0 else 0.0
+        return probability, np.nan, n_samples, probability, probability, float(n_samples), log10_probability
 
     # In the isotropic encounter-plane model, only the magnitude of the
     # nominal relative displacement matters. Put that displacement on x.
@@ -140,35 +155,44 @@ def estimate_collision_probability(
     x = radial * np.cos(angle)
     y = radial * np.sin(angle)
 
-    # Target density: N([d, 0], combined_sigma^2 I_2).
+    # Compute importance weights in log space. Directly evaluating exp(-d^2 /
+    # (2*sigma^2)) underflows to exact zero for distant encounters even when
+    # the mathematical probability is positive. Log space preserves the
+    # probability scale for diagnostics without artificially increasing it.
     squared_distance = (x - d) ** 2 + y ** 2
-    normalization = 1.0 / (2.0 * np.pi * combined_sigma ** 2)
-    target_density = normalization * np.exp(
-        -squared_distance / (2.0 * combined_sigma ** 2)
+    log_weights = (
+        np.log(disk_area)
+        - np.log(2.0 * np.pi * combined_sigma ** 2)
+        - squared_distance / (2.0 * combined_sigma ** 2)
     )
+    max_log_weight = float(np.max(log_weights))
+    scaled_weights = np.exp(log_weights - max_log_weight)
+    scaled_mean = float(np.mean(scaled_weights))
+    log_estimate = max_log_weight + np.log(scaled_mean)
+    log10_probability = float(log_estimate / np.log(10.0))
 
-    # Proposal density is uniform over the disk.
-    weights = target_density * disk_area
+    # Convert back to ordinary probability only when representable as a
+    # positive float. A zero here means numerical underflow, not zero hits.
+    min_log_float = float(np.log(np.nextafter(0.0, 1.0)))
+    estimate = float(np.exp(log_estimate)) if log_estimate >= min_log_float else 0.0
 
-    estimate = float(np.mean(weights))
-
-    if len(weights) > 1:
-        sample_variance = float(np.var(weights, ddof=1))
-        standard_error = float(np.sqrt(sample_variance / n_samples))
+    scaled_se = 0.0
+    if len(scaled_weights) > 1:
+        scaled_se = float(np.sqrt(np.var(scaled_weights, ddof=1) / n_samples))
+    if scaled_mean > 0.0:
+        relative_se = scaled_se / scaled_mean
+        standard_error = estimate * relative_se
     else:
         standard_error = 0.0
 
-    ci_low, ci_high = _normal_confidence_interval(
-        estimate,
-        standard_error,
-    )
+    ci_low, ci_high = _normal_confidence_interval(estimate, standard_error)
 
-    sum_weights = float(np.sum(weights))
-    sum_squared_weights = float(np.sum(weights ** 2))
-    if sum_squared_weights > 0:
-        effective_sample_size = (sum_weights ** 2) / sum_squared_weights
-    else:
-        effective_sample_size = 0.0
+    sum_weights_scaled = float(np.sum(scaled_weights))
+    sum_squared_weights_scaled = float(np.sum(scaled_weights ** 2))
+    effective_sample_size = (
+        (sum_weights_scaled ** 2) / sum_squared_weights_scaled
+        if sum_squared_weights_scaled > 0 else 0.0
+    )
 
     estimate = float(np.clip(estimate, 0.0, 1.0))
     ci_low = float(np.clip(ci_low, 0.0, 1.0))
@@ -181,11 +205,12 @@ def estimate_collision_probability(
         ci_high,
         ci_low,
         float(effective_sample_size),
+        log10_probability,
     )
 
 
-def get_position_at_tca(propagated_df, norad_id, tca):
-    """Look up the propagated X/Y/Z position nearest to TCA."""
+def get_state_at_tca(propagated_df, norad_id, tca):
+    """Return position (km) and velocity (km/s) nearest to the requested TCA."""
     obj_rows = propagated_df[
         propagated_df["NORAD_CAT_ID"] == norad_id
     ].copy()
@@ -198,10 +223,22 @@ def get_position_at_tca(propagated_df, norad_id, tca):
     idx = (obj_rows["TIME"] - tca).abs().idxmin()
     row = obj_rows.loc[idx]
 
-    return np.array(
+    position = np.array(
         [float(row["X_KM"]), float(row["Y_KM"]), float(row["Z_KM"])],
         dtype=float,
     )
+    velocity_columns = ["VX_KM_S", "VY_KM_S", "VZ_KM_S"]
+    if all(col in obj_rows.columns for col in velocity_columns):
+        velocity = np.array([float(row[col]) for col in velocity_columns], dtype=float)
+    else:
+        velocity = None
+    return position, velocity
+
+
+def get_position_at_tca(propagated_df, norad_id, tca):
+    """Backward-compatible position-only helper."""
+    position, _ = get_state_at_tca(propagated_df, norad_id, tca)
+    return position
 
 
 def calculate_orbital_geometry(row, orbital_data_indexed):
@@ -246,6 +283,8 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
     ci_low_list = []
     ess_list = []
     method_list = []
+    log10_probability_list = []
+    underflow_list = []
     sigma_a_list = []
     sigma_b_list = []
     inclination_difference_list = []
@@ -256,8 +295,11 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
         orbital_data_indexed = orbital_data_df.set_index("NORAD_CAT_ID")
 
     for row_number, (_, row) in enumerate(conjunctions_df.iterrows()):
-        pos_a = get_position_at_tca(propagated_df, row["NORAD_A"], row["TCA"])
-        pos_b = get_position_at_tca(propagated_df, row["NORAD_B"], row["TCA"])
+        pos_a, vel_a = get_state_at_tca(propagated_df, row["NORAD_A"], row["TCA"])
+        pos_b, vel_b = get_state_at_tca(propagated_df, row["NORAD_B"], row["TCA"])
+        relative_velocity_vector = (
+            vel_a - vel_b if vel_a is not None and vel_b is not None else None
+        )
 
         if orbital_data_indexed is not None:
             sigma_a, sigma_b = get_pair_sigmas(row, orbital_data_indexed)
@@ -275,12 +317,14 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
             upper_95_probability,
             ci_low,
             effective_sample_size,
+            log10_probability,
         ) = estimate_collision_probability(
             pos_a,
             pos_b,
             sigma_a_km=sigma_a,
             sigma_b_km=sigma_b,
             random_seed=100000 + row_number,
+            relative_velocity_vector=relative_velocity_vector,
         )
 
         inclination_difference, altitude_difference = calculate_orbital_geometry(
@@ -295,6 +339,8 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
         ci_low_list.append(ci_low)
         ess_list.append(effective_sample_size)
         method_list.append(config.MC_METHOD)
+        log10_probability_list.append(log10_probability)
+        underflow_list.append(probability == 0.0 and np.isfinite(log10_probability))
         sigma_a_list.append(sigma_a)
         sigma_b_list.append(sigma_b)
         inclination_difference_list.append(inclination_difference)
@@ -303,7 +349,7 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
         if verbose:
             print(
                 f"[MC-IS] {row['OBJECT_A']} vs {row['OBJECT_B']}: "
-                f"P={probability:.6e}, "
+                f"P={probability:.6e}, log10(P)={log10_probability:.3f}, "
                 f"95%CI=[{ci_low:.6e}, {upper_95_probability:.6e}], "
                 f"N={n}, ESS={effective_sample_size:.0f}, "
                 f"sigma_a={sigma_a:.2f}km, sigma_b={sigma_b:.2f}km, "
@@ -321,6 +367,8 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
     results["MC_CI_HIGH"] = upper_95_list
     results["MC_EFFECTIVE_SAMPLE_SIZE"] = ess_list
     results["MC_METHOD"] = method_list
+    results["MC_LOG10_PROBABILITY"] = log10_probability_list
+    results["MC_PROBABILITY_UNDERFLOW"] = underflow_list
     results["INCLINATION_DIFFERENCE_DEG"] = inclination_difference_list
     results["ALTITUDE_DIFFERENCE_KM"] = altitude_difference_list
 
@@ -380,6 +428,8 @@ def run_and_save(output_path=None):
                 "MC_SAMPLES",
                 "MC_EFFECTIVE_SAMPLE_SIZE",
                 "COLLISION_PROBABILITY_MC",
+                "MC_LOG10_PROBABILITY",
+                "MC_PROBABILITY_UNDERFLOW",
                 "MC_CI_LOW",
                 "MC_CI_HIGH",
                 "INCLINATION_DIFFERENCE_DEG",
