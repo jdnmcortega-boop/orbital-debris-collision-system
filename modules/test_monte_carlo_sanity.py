@@ -1,75 +1,64 @@
 """
-Sanity check for monte_carlo.py's core math — NOT part of the main pipeline.
-Run this standalone to confirm estimate_collision_probability() actually
-produces nonzero probabilities when objects are genuinely close, before
-trusting the all-zero results on your real 9-67 km conjunction data.
-"""
+Deterministic sanity checks for the encounter-plane Monte Carlo estimator.
+Run from the repository root:
+    python -m modules.test_monte_carlo_sanity
 
+These are model-level checks, not operational CARA validation.
+"""
 import numpy as np
 
 from modules import monte_carlo
 import config
 
 
-def run_case(label, pos_a, pos_b, sigma_km, n_samples=100_000):
-    prob, hits, n = monte_carlo.estimate_collision_probability(
-        pos_a, pos_b,
-        sigma_km=sigma_km,
+def run_case(label, separation_km, combined_sigma_km, n_samples=100_000):
+    # Set equal independent object sigmas so sqrt(sigma_a^2 + sigma_b^2)
+    # equals the requested combined relative-position sigma.
+    sigma_each = combined_sigma_km / np.sqrt(2.0)
+    result = monte_carlo.estimate_collision_probability(
+        pos_a=[7000.0, 0.0, 0.0],
+        pos_b=[7000.0 + separation_km, 0.0, 0.0],
+        sigma_a_km=sigma_each,
+        sigma_b_km=sigma_each,
         n_samples=n_samples,
         hard_body_radius_km=config.HARD_BODY_RADIUS_KM,
+        random_seed=12345,
     )
-    print(f"{label:45s} sigma={sigma_km:>5.3f} km  "
-          f"P={prob:.6f}  ({hits}/{n} samples)")
+    probability, _hits, n, upper, lower, ess, log10p = result
+    print(
+        f"{label:40s} d={separation_km:8.4f} km "
+        f"sigma={combined_sigma_km:7.4f} km "
+        f"P={probability:.6e} log10(P)={log10p:9.3f} "
+        f"CI=[{lower:.3e}, {upper:.3e}] ESS={ess:.0f}/{n}"
+    )
+    return probability, log10p
 
 
 if __name__ == "__main__":
-    print("Hard body radius:", config.HARD_BODY_RADIUS_KM, "km")
-    print("=" * 80)
+    radius = float(config.HARD_BODY_RADIUS_KM)
+    print("Hard-body radius:", radius, "km")
+    print("=" * 110)
 
-    # Case 1: objects at the SAME point (nominal miss distance = 0).
-    # With zero separation and any nonzero uncertainty, roughly half the
-    # random noise combinations should land within the hard-body radius
-    # for small enough sigma. This is the strongest possible sanity check —
-    # if this comes back 0, something is actually broken in the code.
-    run_case(
-        "Same position (0 km apart)",
-        pos_a=[7000.0, 0.0, 0.0],
-        pos_b=[7000.0, 0.0, 0.0],
-        sigma_km=0.02,
+    # A point well inside the collision disk with negligible uncertainty.
+    p_inside, _ = run_case("Inside hard body, tiny uncertainty", 0.5 * radius, 1e-5)
+    assert p_inside > 0.99, "Inside-disk limiting case should approach probability 1."
+
+    # With zero nominal miss distance and a combined sigma equal to the
+    # hard-body radius, probability must be positive and less than one.
+    p_center, _ = run_case("Zero miss distance", 0.0, radius)
+    assert 0.0 < p_center < 1.0, "Centered Gaussian disk probability should be between 0 and 1."
+
+    # Increasing separation with fixed sigma must not increase probability.
+    p_near, _ = run_case("Near conjunction", 0.05, 1.0)
+    p_far, log_far = run_case("Farther conjunction", 9.07, 1.0)
+    assert p_near > p_far, "Probability should decrease with increasing miss distance."
+
+    # Far events may underflow as an ordinary float; log10(P) should still
+    # expose the scale when it is finite.
+    p_very_far, log_very_far = run_case("Rare-event diagnostic", 68.0, 1.0)
+    assert p_very_far == 0.0 and np.isfinite(log_very_far), (
+        "Expected ordinary probability underflow but a finite log-probability diagnostic."
     )
 
-    # Case 2: objects 15 m apart — well inside a 20 m hard-body radius
-    # even with zero noise. Should return a probability close to 1.0
-    # at very small sigma, and still clearly nonzero at larger sigma.
-    run_case(
-        "15 m apart (inside hard-body radius)",
-        pos_a=[7000.0, 0.0, 0.0],
-        pos_b=[7000.015, 0.0, 0.0],
-        sigma_km=0.02,
-    )
-
-    # Case 3: objects 9.07 km apart — YOUR closest real conjunction
-    # (COSMOS 2251 DEB vs LUSAT), at your actual uncertainty setting.
-    run_case(
-        "9.07 km apart (your real closest pair)",
-        pos_a=[7000.0, 0.0, 0.0],
-        pos_b=[7009.074414, 0.0, 0.0],
-        sigma_km=getattr(config, "POSITION_UNCERTAINTY_KM", 1.0),
-    )
-
-    # Case 4: same 9.07 km separation, but with a much larger uncertainty
-    # (5 km) — shows the probability rising as position uncertainty grows,
-    # which is the expected physical behavior (sloppier tracking = more
-    # spread out samples = higher chance some land close together).
-    run_case(
-        "9.07 km apart, larger uncertainty",
-        pos_a=[7000.0, 0.0, 0.0],
-        pos_b=[7009.074414, 0.0, 0.0],
-        sigma_km=5.0,
-    )
-
-    print("=" * 80)
-    print("If Cases 1 and 2 return ~0 as well, the bug is in the code.")
-    print("If Cases 1 and 2 return nonzero but Cases 3 and 4 stay near 0,")
-    print("the code is correct and your real conjunctions genuinely have")
-    print("probabilities far below what 10,000-100,000 samples can resolve.")
+    print("=" * 110)
+    print("All Monte Carlo sanity checks passed.")
