@@ -72,17 +72,37 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
                 "Accept": "text/csv,*/*",
             },
         )
-        try:
-            with urlopen(request, timeout=45) as response:
-                payload = response.read()
-        except Exception as exc:
+        payload = None
+        last_error = None
+        # Hosted Streamlit instances can occasionally experience transient
+        # network stalls. Retry once with a shorter per-attempt timeout.
+        for attempt in range(1, 3):
+            try:
+                _progress(
+                    progress_callback,
+                    f"Requesting {group} from CelesTrak (attempt {attempt}/2)",
+                )
+                with urlopen(request, timeout=20) as response:
+                    payload = response.read()
+                if not payload.strip():
+                    raise RuntimeError("CelesTrak returned an empty response.")
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt < 2:
+                    _progress(
+                        progress_callback,
+                        f"CelesTrak request for {group} failed; retrying once…",
+                    )
+
+        if payload is None or not payload.strip():
             raise RuntimeError(
-                f"Could not download current CelesTrak debris query {group}. "
-                "The request timed out or the host was unreachable. "
-                "Do not repeatedly click refresh; check the app deployment/network "
-                "and try again later. Details: "
-                f"{exc}"
-            ) from exc
+                f"Could not download current CelesTrak debris query {group} after "
+                "2 attempts. The existing orbital input file was not replaced. "
+                "This usually indicates a temporary CelesTrak/network timeout; "
+                "try again later. Last error: "
+                f"{last_error}"
+            ) from last_error
 
         if not payload.strip():
             continue
