@@ -572,8 +572,10 @@ def render_live_tab():
         if "MC_PROBABILITY_UNDERFLOW" in mc_view.columns:
             underflow_count = int(
                 mc_view["MC_PROBABILITY_UNDERFLOW"]
-                .fillna(False)
-                .astype(bool)
+                .astype(str)
+                .str.strip()
+                .str.lower()
+                .isin(["true", "1", "yes"])
                 .sum()
             )
         else:
