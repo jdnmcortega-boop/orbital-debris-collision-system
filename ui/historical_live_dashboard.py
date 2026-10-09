@@ -42,6 +42,7 @@ from modules.historical_validation import (
 from modules import orbital_mechanics as om
 from modules import sgp4_propagation
 from modules import monte_carlo
+from modules import conjunction_detection
 from modules import visualization as viz
 
 
@@ -501,55 +502,99 @@ def render_live_tab():
             st.info(f"Conjunction chart unavailable: {exc}")
         st.dataframe(conjunctions, width="stretch")
 
-    # The production hybrid Monte Carlo module was previously not called by this
-    # Streamlit view. This button explicitly runs it and surfaces its diagnostics.
+    # Always show the calculation control. If the propagation/conjunction
+    # files are missing or stale, the user can rebuild them from current orbital
+    # data instead of being left with a diagnostics section that cannot run.
     st.divider()
-    st.subheader("🎯 Monte Carlo collision-probability diagnostics")
+    st.subheader("🎯 Live conjunction + Monte Carlo calculation")
     st.caption(
-        "Runs the current hybrid direct-MC / encounter-plane importance-sampling "
-        "estimator on the saved conjunctions and propagated grid. This does not "
-        "re-propagate TLEs; update the pipeline inputs first if they are stale."
+        "Rebuilds the 30-day SGP4 propagation grid, screens conjunctions, and "
+        "calculates collision probabilities from the newly generated inputs. "
+        "This can take time because every selected object is propagated across "
+        "the forecast grid."
     )
 
     propagated_path = Path(config.PROPAGATED_GRID_FILE)
+    conjunction_path = Path(config.CONJUNCTIONS_FILE)
     mc_path = PROJECT_ROOT / "results" / "monte_carlo_results.csv"
-    can_run_mc = (
-        conjunctions is not None
-        and not conjunctions.empty
-        and propagated_path.exists()
-    )
 
-    if not can_run_mc:
-        st.warning(
-            "Monte Carlo is waiting for both a non-empty conjunctions.csv and "
-            "the propagated_objects.csv grid. Run the orbital propagation and "
-            "conjunction-screening pipeline first."
-        )
-    elif st.button(
-        "▶ Recalculate Monte Carlo for current conjunctions",
+    s1, s2, s3 = st.columns(3)
+    s1.metric("Propagation grid", "Ready" if propagated_path.exists() else "Missing")
+    s2.metric("Conjunction file", "Ready" if conjunction_path.exists() else "Missing")
+    s3.metric("Saved MC result", "Ready" if mc_path.exists() else "Missing")
+
+    run_live_pipeline = st.button(
+        "▶ Rebuild live inputs and recalculate Monte Carlo",
         key="live_run_hybrid_mc",
         type="primary",
         width="stretch",
-    ):
+        disabled=orbital_df is None or orbital_df.empty,
+    )
+
+    if orbital_df is None or orbital_df.empty:
+        st.warning(
+            "Current orbital data is unavailable, so the live calculation cannot run. "
+            "Check data/orbital_data.csv and the data loader."
+        )
+
+    if run_live_pipeline:
         try:
             with st.spinner(
-                "Running hybrid Monte Carlo / importance sampling for each conjunction…"
+                "Step 1/3: propagating current orbital data over the 30-day grid…"
             ):
-                mc_result = monte_carlo.run_and_save(output_path=mc_path)
-            if mc_result is None or mc_result.empty:
-                st.warning("The estimator returned no conjunction results.")
-                st.session_state.pop("live_hybrid_mc_result", None)
-            else:
-                st.session_state["live_hybrid_mc_result"] = mc_result
+                propagated, failed_objects = sgp4_propagation.propagate_and_save(
+                    orbital_df,
+                    output_path=propagated_path,
+                )
+
+            if propagated is None or propagated.empty:
+                st.error(
+                    "Propagation produced no valid states. Monte Carlo was not run. "
+                    f"Failed objects: {len(failed_objects) if failed_objects is not None else 0}."
+                )
+                st.stop()
+
+            with st.spinner("Step 2/3: screening the propagated objects for conjunctions…"):
+                new_conjunctions = conjunction_detection.detect_and_save(
+                    propagated_df=propagated,
+                    output_path=conjunction_path,
+                )
+
+            if new_conjunctions is None or new_conjunctions.empty:
+                st.session_state["live_hybrid_mc_result"] = pd.DataFrame()
                 st.session_state["live_hybrid_mc_timestamp"] = datetime.now(
                     timezone.utc
                 ).strftime("%Y-%m-%d %H:%M:%S UTC")
-                st.success(
-                    f"Monte Carlo recalculated for {len(mc_result):,} conjunctions. "
-                    "The diagnostics below now use this run."
+                st.warning(
+                    "The new propagation completed, but no pairs were inside the "
+                    f"{config.SCREENING_DISTANCE_KM:g} km screening distance. "
+                    "No collision probability rows were generated; this is not a software error."
                 )
+                st.rerun()
+
+            with st.spinner("Step 3/3: calculating Monte Carlo collision probabilities…"):
+                mc_result = monte_carlo.run_monte_carlo(
+                    new_conjunctions,
+                    propagated,
+                    orbital_data_df=orbital_df,
+                    verbose=False,
+                )
+                config.ensure_dirs()
+                mc_result.to_csv(mc_path, index=False)
+
+            st.session_state["live_hybrid_mc_result"] = mc_result
+            st.session_state["live_hybrid_mc_timestamp"] = datetime.now(
+                timezone.utc
+            ).strftime("%Y-%m-%d %H:%M:%S UTC")
+            st.session_state["live_failed_objects"] = failed_objects
+            st.success(
+                f"Pipeline completed: {len(propagated):,} propagated states, "
+                f"{len(new_conjunctions):,} conjunctions, and "
+                f"{len(mc_result):,} Monte Carlo results."
+            )
+            st.rerun()
         except Exception as exc:
-            st.error(f"Monte Carlo recalculation failed: {exc}")
+            st.error(f"Live propagation / conjunction / Monte Carlo pipeline failed: {exc}")
 
     mc_result = st.session_state.get("live_hybrid_mc_result")
     if mc_result is None and mc_path.exists():
