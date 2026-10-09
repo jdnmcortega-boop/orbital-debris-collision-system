@@ -82,6 +82,11 @@ def render_overview():
         "risk forecasting → secure warning communication"
     )
 
+    st.caption(
+        "Build marker: live-refresh-diagnostic-2026-10-09 | "
+        "If this text is missing, Streamlit is not running the latest main-branch dashboard."
+    )
+
     with st.expander("🔄 Refresh all current/live results", expanded=False):
         st.write(
             "Downloads fresh CelesTrak orbital elements for the project's curated "
