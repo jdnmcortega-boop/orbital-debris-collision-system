@@ -41,6 +41,7 @@ from modules.historical_validation import (
 )
 from modules import orbital_mechanics as om
 from modules import sgp4_propagation
+from modules import monte_carlo
 from modules import visualization as viz
 
 
@@ -499,6 +500,118 @@ def render_live_tab():
         except Exception as exc:
             st.info(f"Conjunction chart unavailable: {exc}")
         st.dataframe(conjunctions, width="stretch")
+
+    # The production hybrid Monte Carlo module was previously not called by this
+    # Streamlit view. This button explicitly runs it and surfaces its diagnostics.
+    st.divider()
+    st.subheader("🎯 Monte Carlo collision-probability diagnostics")
+    st.caption(
+        "Runs the current hybrid direct-MC / encounter-plane importance-sampling "
+        "estimator on the saved conjunctions and propagated grid. This does not "
+        "re-propagate TLEs; update the pipeline inputs first if they are stale."
+    )
+
+    propagated_path = Path(config.PROPAGATED_GRID_FILE)
+    mc_path = PROJECT_ROOT / "results" / "monte_carlo_results.csv"
+    can_run_mc = (
+        conjunctions is not None
+        and not conjunctions.empty
+        and propagated_path.exists()
+    )
+
+    if not can_run_mc:
+        st.warning(
+            "Monte Carlo is waiting for both a non-empty conjunctions.csv and "
+            "the propagated_objects.csv grid. Run the orbital propagation and "
+            "conjunction-screening pipeline first."
+        )
+    elif st.button(
+        "▶ Recalculate Monte Carlo for current conjunctions",
+        key="live_run_hybrid_mc",
+        type="primary",
+        width="stretch",
+    ):
+        try:
+            with st.spinner(
+                "Running hybrid Monte Carlo / importance sampling for each conjunction…"
+            ):
+                mc_result = monte_carlo.run_and_save(output_path=mc_path)
+            if mc_result is None or mc_result.empty:
+                st.warning("The estimator returned no conjunction results.")
+                st.session_state.pop("live_hybrid_mc_result", None)
+            else:
+                st.session_state["live_hybrid_mc_result"] = mc_result
+                st.session_state["live_hybrid_mc_timestamp"] = datetime.now(
+                    timezone.utc
+                ).strftime("%Y-%m-%d %H:%M:%S UTC")
+                st.success(
+                    f"Monte Carlo recalculated for {len(mc_result):,} conjunctions. "
+                    "The diagnostics below now use this run."
+                )
+        except Exception as exc:
+            st.error(f"Monte Carlo recalculation failed: {exc}")
+
+    mc_result = st.session_state.get("live_hybrid_mc_result")
+    if mc_result is None and mc_path.exists():
+        try:
+            mc_result = pd.read_csv(mc_path)
+        except Exception as exc:
+            st.warning(f"Could not read saved Monte Carlo results: {exc}")
+
+    if mc_result is not None and not mc_result.empty:
+        if st.session_state.get("live_hybrid_mc_timestamp"):
+            st.caption(
+                "Last run in this Streamlit session: "
+                + st.session_state["live_hybrid_mc_timestamp"]
+            )
+        mc_view = mc_result.copy()
+        if "MC_LOG10_PROBABILITY" in mc_view.columns:
+            mc_view["MC_LOG10_PROBABILITY"] = pd.to_numeric(
+                mc_view["MC_LOG10_PROBABILITY"], errors="coerce"
+            )
+        if "MC_PROBABILITY_UNDERFLOW" in mc_view.columns:
+            underflow_count = int(
+                mc_view["MC_PROBABILITY_UNDERFLOW"]
+                .fillna(False)
+                .astype(bool)
+                .sum()
+            )
+        else:
+            underflow_count = 0
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("MC conjunction rows", f"{len(mc_view):,}")
+        m2.metric(
+            "Importance-sampled rows",
+            int(
+                mc_view["MC_ESTIMATOR_MODE"].astype(str)
+                .eq("importance_sampling").sum()
+            ) if "MC_ESTIMATOR_MODE" in mc_view.columns else "—",
+        )
+        m3.metric("Float underflows", underflow_count)
+        m4.metric(
+            "MC samples per pair",
+            f"{int(mc_view['MC_SAMPLES'].max()):,}"
+            if "MC_SAMPLES" in mc_view.columns and not mc_view.empty else "—",
+        )
+
+        display_cols = [
+            "OBJECT_A", "OBJECT_B", "TCA", "MISS_DISTANCE_KM",
+            "RELATIVE_VELOCITY_KM_S", "SIGMA_A_KM", "SIGMA_B_KM",
+            "COLLISION_PROBABILITY_MC", "MC_LOG10_PROBABILITY",
+            "MC_ESTIMATOR_MODE", "MC_PROBABILITY_UNDERFLOW",
+            "MC_EFFECTIVE_SAMPLE_SIZE", "MC_CI_LOW", "MC_CI_HIGH",
+        ]
+        display_cols = [column for column in display_cols if column in mc_view.columns]
+        st.dataframe(mc_view[display_cols], width="stretch", hide_index=True)
+
+        if underflow_count:
+            st.info(
+                "Some ordinary floating-point probabilities underflow to 0. "
+                "Check MC_LOG10_PROBABILITY for the estimated rare-event scale; "
+                "a displayed 0 in those rows does not mean the estimator observed "
+                "zero probability."
+            )
 
     if predictions is not None and not predictions.empty:
         st.subheader("30-day risk forecast")
