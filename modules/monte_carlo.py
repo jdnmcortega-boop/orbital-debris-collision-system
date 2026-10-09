@@ -87,11 +87,14 @@ def estimate_collision_probability(
     uncertainty. Direct brute-force 3-D sampling is inefficient at
     probabilities near 1e-6 because almost all samples miss the hard-body
     region. This estimator instead samples uniformly inside the hard-body
-    disk, then applies the exact Gaussian likelihood weight.
+    disk for rare events and applies the exact Gaussian likelihood weight.
+    For non-rare events it samples directly from the relative 2-D Gaussian,
+    which handles narrow distributions near the collision disk efficiently.
 
-    The estimator is unbiased for the same 2-D probability model used by
-    QAE, and its uncertainty is reported from the variance of the weighted
-    samples. No arbitrary probability inflation or threshold change is used.
+    The hybrid estimator targets the same 2-D isotropic Gaussian model used
+    by the project's QAE comparison. No arbitrary probability inflation or
+    threshold change is used. This is a research model, not a substitute for
+    full covariance-based operational conjunction assessment.
 
     Returns:
         probability
@@ -171,7 +174,7 @@ def estimate_collision_probability(
             n_samples,
             ci_high,
             ci_low,
-            float(hit_count),
+            float(n_samples),
             log10_probability,
         )
 
@@ -374,7 +377,7 @@ def run_monte_carlo(conjunctions_df, propagated_df, orbital_data_df=None, verbos
 
         if verbose:
             print(
-                f"[MC-IS] {row['OBJECT_A']} vs {row['OBJECT_B']}: "
+                f"[MC-HYBRID] {row['OBJECT_A']} vs {row['OBJECT_B']}: "
                 f"P={probability:.6e}, log10(P)={log10_probability:.3f}, "
                 f"95%CI=[{ci_low:.6e}, {upper_95_probability:.6e}], "
                 f"N={n}, ESS={effective_sample_size:.0f}, "
