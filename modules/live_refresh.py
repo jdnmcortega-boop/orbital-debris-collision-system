@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode
 import json
 
 import pandas as pd
@@ -30,10 +31,12 @@ from modules import (
     qkd,
 )
 
-CELESTRAK_GROUPS = (
-    "FENGYUN-1C-DEBRIS",
-    "IRIDIUM-33-DEBRIS",
-    "COSMOS-2251-DEBRIS",
+# Query by the debris name prefix rather than downloading each full group.
+# These NAME queries return the same curated debris families with a smaller response.
+CELESTRAK_QUERIES = (
+    ("FENGYUN-1C-DEBRIS", "FENGYUN 1C DEB"),
+    ("IRIDIUM-33-DEBRIS", "IRIDIUM 33 DEB"),
+    ("COSMOS-2251-DEBRIS", "COSMOS 2251 DEB"),
 )
 
 def _progress(callback, message):
@@ -56,15 +59,12 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         raise ValueError("No valid NORAD catalog IDs exist in the current dataset.")
 
     frames = []
-    for group in CELESTRAK_GROUPS:
-        _progress(progress_callback, f"Downloading current CelesTrak group: {group}")
-        # Use the canonical endpoint and make one request per group per refresh.
-        # CelesTrak updates GP data about every two hours and may block repeated
-        # requests; repeated retries can make a temporary timeout worse.
-        url = (
-            "https://celestrak.org/NORAD/elements/gp.php"
-            f"?GROUP={group}&FORMAT=CSV"
-        )
+    for group, name_query in CELESTRAK_QUERIES:
+        _progress(progress_callback, f"Downloading current CelesTrak name query: {group}")
+        # CelesTrak supports NAME queries. Request only the debris family needed
+        # instead of the full GROUP response, which can be slow from hosted apps.
+        query = urlencode({"NAME": name_query, "FORMAT": "CSV"})
+        url = f"https://celestrak.org/NORAD/elements/gp.php?{query}"
         request = Request(
             url,
             headers={
@@ -77,7 +77,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
                 payload = response.read()
         except Exception as exc:
             raise RuntimeError(
-                f"Could not download current CelesTrak group {group}. "
+                f"Could not download current CelesTrak debris query {group}. "
                 "The request timed out or the host was unreachable. "
                 "Do not repeatedly click refresh; check the app deployment/network "
                 "and try again later. Details: "
