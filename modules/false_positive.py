@@ -41,38 +41,45 @@ def build_false_positive_analysis(conjunctions_df, sigma_km=None,
 
 def run_and_save():
     config.ensure_dirs()
-
-    conj_path = config.CONJUNCTIONS_FILE
-    if not conj_path.exists():
-        print(f"No conjunctions file found at {conj_path}. Run conjunction_detection first.")
-        return None
-
-    conjunctions = pd.read_csv(conj_path)
-    if len(conjunctions) == 0:
-        print("Conjunctions file is empty — nothing to assess.")
-        return None
-
-    analysis = build_false_positive_analysis(conjunctions)
+    analytic_path = config.RESULTS_DIR / "analytic_pc_results.csv"
+    if analytic_path.exists():
+        analysis = pd.read_csv(analytic_path)
+        if analysis.empty:
+            print("Analytical Pc results are empty — nothing to assess.")
+            return None
+        if "ANALYTIC_PC" not in analysis.columns:
+            raise ValueError("analytic_pc_results.csv does not contain ANALYTIC_PC.")
+        analysis["CLASSIFICATION"] = analysis["ANALYTIC_PC"].apply(
+            lambda p: "NOT_CALCULATED" if pd.isna(p) else classify_pair(float(p))
+        )
+        analysis = analysis.sort_values("ANALYTIC_PC", ascending=False, na_position="last").reset_index(drop=True)
+    else:
+        conj_path = config.CONJUNCTIONS_FILE
+        if not conj_path.exists():
+            print(f"No conjunctions file found at {conj_path}. Run conjunction_detection first.")
+            return None
+        conjunctions = pd.read_csv(conj_path)
+        if conjunctions.empty:
+            print("Conjunctions file is empty — nothing to assess.")
+            return None
+        analysis = build_false_positive_analysis(conjunctions)
 
     output_path = config.RESULTS_DIR / "false_positive_analysis.csv"
     analysis.to_csv(output_path, index=False)
-
-    total = len(analysis)
-    false_positives = (analysis["CLASSIFICATION"] == "FALSE_POSITIVE").sum()
-    confirmed = total - false_positives
-    fp_rate = false_positives / total if total > 0 else 0.0
-
-    print(f"\nScreened pairs: {total}")
-    print(f"Confirmed concerns: {confirmed}")
-    print(f"False positives:    {false_positives}")
-    print(f"False-positive rate: {fp_rate:.2%}")
-
-    print(f"\nResults written: {output_path}")
-    print(analysis[["OBJECT_A", "OBJECT_B", "MISS_DISTANCE_KM",
-                     "ANALYTIC_PC", "CLASSIFICATION"]].to_string(index=False))
-
+    valid = analysis["CLASSIFICATION"].isin(["FALSE_POSITIVE", "CONFIRMED_CONCERN"])
+    valid_count = int(valid.sum())
+    false_positives = int((analysis["CLASSIFICATION"] == "FALSE_POSITIVE").sum())
+    confirmed = int((analysis["CLASSIFICATION"] == "CONFIRMED_CONCERN").sum())
+    fp_rate = false_positives / valid_count if valid_count else float("nan")
+    print(f"Screened pairs with calculated Pc: {valid_count}")
+    print(f"Modeled concerns: {confirmed}")
+    print(f"Below-threshold pairs: {false_positives}")
+    print(f"Below-threshold rate: {fp_rate:.2%}" if valid_count else "Below-threshold rate: unavailable")
+    print(f"Results written: {output_path}")
+    cols = [c for c in ["OBJECT_A", "OBJECT_B", "MISS_DISTANCE_KM", "ANALYTIC_PC", "CLASSIFICATION"] if c in analysis.columns]
+    if cols:
+        print(analysis[cols].to_string(index=False))
     return analysis
-
 
 if __name__ == "__main__":
     run_and_save()
