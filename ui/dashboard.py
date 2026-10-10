@@ -390,7 +390,6 @@ def main():
         [
             "🏠 Overview",
             "⏪ Historical Replay / Validation",
-            "🚀 Historical Rocket Collisions",
             "📡 Live Tracker / 30-Day Forecast",
             "🌍 Orbital Tracker",
             "🧪 Prototype Simulation",
@@ -405,9 +404,6 @@ def main():
     elif page == "⏪ Historical Replay / Validation":
         from ui.historical_live_dashboard import render_historical_tab
         render_historical_tab()
-    elif page == "🚀 Historical Rocket Collisions":
-        from ui.historical_rocket_tab import render_historical_rocket_tab
-        render_historical_rocket_tab()
     elif page == "📡 Live Tracker / 30-Day Forecast":
         from ui.historical_live_dashboard import render_live_tab
         render_live_tab()
