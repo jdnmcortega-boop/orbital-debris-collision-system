@@ -595,155 +595,83 @@ def lookup_operator(object_name):
 # PREDICTION GENERATION
 # ============================================================
 
-def build_predictions(mc_results_df):
-    """
-    Take Monte Carlo results and generate:
-
-        - Monte Carlo collision probability
-        - probability-based risk level
-        - orbital geometry factor
-        - composite risk score
-        - composite risk level
-        - country/operator attribution
-    """
-
-    df = mc_results_df.copy()
-
-    # ========================================================
-    # REQUIRED COLUMNS
-    # ========================================================
-
-    required_columns = [
-        "COLLISION_PROBABILITY_MC",
-        "RELATIVE_VELOCITY_KM_S",
-        "MISS_DISTANCE_KM",
-        "SIGMA_A_KM",
-        "SIGMA_B_KM",
-        "ALTITUDE_DIFFERENCE_KM",
-        "INCLINATION_DIFFERENCE_DEG",
-    ]
-
-    missing_columns = [
-        col
-        for col in required_columns
-        if col not in df.columns
-    ]
-
-    if missing_columns:
-
-        raise ValueError(
-            "Missing required columns in Monte Carlo results: "
-            + ", ".join(missing_columns)
-        )
-
-    # ========================================================
-    # ACTUAL MONTE CARLO RISK LEVEL
-    # ========================================================
-
-    df["RISK_LEVEL"] = (
-        df["COLLISION_PROBABILITY_MC"]
-        .fillna(0.0)
-        .apply(classify_risk)
+def build_predictions(results_df):
+    """Build risk rankings from analytical Pc (preferred) or MC fallback."""
+    df = results_df.copy()
+    probability_column = (
+        "ANALYTIC_PC" if "ANALYTIC_PC" in df.columns
+        else "COLLISION_PROBABILITY_MC" if "COLLISION_PROBABILITY_MC" in df.columns
+        else None
     )
+    required_columns = [
+        "RELATIVE_VELOCITY_KM_S", "MISS_DISTANCE_KM",
+        "SIGMA_A_KM", "SIGMA_B_KM",
+        "ALTITUDE_DIFFERENCE_KM", "INCLINATION_DIFFERENCE_DEG",
+    ]
+    if probability_column is None:
+        raise ValueError("Results need ANALYTIC_PC or COLLISION_PROBABILITY_MC.")
+    missing = [col for col in required_columns if col not in df.columns]
+    if missing:
+        raise ValueError("Missing required prediction columns: " + ", ".join(missing))
 
-    # ========================================================
-    # ORBITAL GEOMETRY FACTOR
-    # ========================================================
-
+    df[probability_column] = pd.to_numeric(df[probability_column], errors="coerce")
+    df["PROBABILITY_SOURCE"] = (
+        "Analytical Pc (modeled uncertainty)" if probability_column == "ANALYTIC_PC"
+        else "Monte Carlo validation estimate"
+    )
+    df["RISK_LEVEL"] = df[probability_column].apply(
+        lambda p: classify_risk(p) if pd.notna(p) else "UNAVAILABLE"
+    )
     df["ORBITAL_GEOMETRY_FACTOR"] = df.apply(
         lambda r: orbital_geometry_factor(
-            r["MISS_DISTANCE_KM"],
-            r["ALTITUDE_DIFFERENCE_KM"],
+            r["MISS_DISTANCE_KM"], r["ALTITUDE_DIFFERENCE_KM"],
             r["INCLINATION_DIFFERENCE_DEG"],
-        ),
+        ) if all(pd.notna(r.get(c)) for c in [
+            "MISS_DISTANCE_KM", "ALTITUDE_DIFFERENCE_KM", "INCLINATION_DIFFERENCE_DEG"
+        ]) else np.nan,
         axis=1,
     )
 
-    # ========================================================
-    # COMPOSITE RISK SCORE
-    # ========================================================
+    def score_row(r):
+        needed = [
+            probability_column, "RELATIVE_VELOCITY_KM_S", "MISS_DISTANCE_KM",
+            "SIGMA_A_KM", "SIGMA_B_KM", "ALTITUDE_DIFFERENCE_KM",
+            "INCLINATION_DIFFERENCE_DEG",
+        ]
+        if not all(pd.notna(r.get(c)) for c in needed):
+            return np.nan
+        return composite_risk_score(
+            probability=r[probability_column],
+            relative_velocity_km_s=r["RELATIVE_VELOCITY_KM_S"],
+            miss_distance_km=r["MISS_DISTANCE_KM"],
+            sigma_a_km=r["SIGMA_A_KM"],
+            sigma_b_km=r["SIGMA_B_KM"],
+            altitude_difference_km=r["ALTITUDE_DIFFERENCE_KM"],
+            inclination_difference_deg=r["INCLINATION_DIFFERENCE_DEG"],
+        )
 
-    df["COMPOSITE_RISK_SCORE"] = df.apply(
-        lambda r: composite_risk_score(
-            probability=r["COLLISION_PROBABILITY_MC"],
-            relative_velocity_km_s=r[
-                "RELATIVE_VELOCITY_KM_S"
-            ],
-            miss_distance_km=r[
-                "MISS_DISTANCE_KM"
-            ],
-            sigma_a_km=r[
-                "SIGMA_A_KM"
-            ],
-            sigma_b_km=r[
-                "SIGMA_B_KM"
-            ],
-            altitude_difference_km=r[
-                "ALTITUDE_DIFFERENCE_KM"
-            ],
-            inclination_difference_deg=r[
-                "INCLINATION_DIFFERENCE_DEG"
-            ],
-        ),
-        axis=1,
-    )
-
-    # ========================================================
-    # COMPOSITE RISK LEVEL
-    # ========================================================
-
+    df["COMPOSITE_RISK_SCORE"] = df.apply(score_row, axis=1)
     df["COMPOSITE_RISK_LEVEL"] = df.apply(
         lambda r: classify_composite_risk(
-            r["COMPOSITE_RISK_SCORE"],
-            r["MISS_DISTANCE_KM"],
+            r["COMPOSITE_RISK_SCORE"], r["MISS_DISTANCE_KM"],
             r["ALTITUDE_DIFFERENCE_KM"],
-        ),
+        ) if pd.notna(r["COMPOSITE_RISK_SCORE"]) else "UNAVAILABLE",
         axis=1,
     )
 
-    # ========================================================
-    # COUNTRY / OPERATOR INFORMATION
-    # ========================================================
+    for suffix in ("A", "B"):
+        countries, operators = [], []
+        names = df["OBJECT_" + suffix] if "OBJECT_" + suffix in df.columns else [""] * len(df)
+        for name in names:
+            country, operator = lookup_operator(name)
+            countries.append(country)
+            operators.append(operator)
+        df["COUNTRY_" + suffix] = countries
+        df["OPERATOR_" + suffix] = operators
 
-    country_a = []
-    operator_a = []
-    country_b = []
-    operator_b = []
-
-    for _, row in df.iterrows():
-
-        ca, oa = lookup_operator(
-            row["OBJECT_A"]
-        )
-
-        cb, ob = lookup_operator(
-            row["OBJECT_B"]
-        )
-
-        country_a.append(ca)
-        operator_a.append(oa)
-
-        country_b.append(cb)
-        operator_b.append(ob)
-
-    df["COUNTRY_A"] = country_a
-    df["OPERATOR_A"] = operator_a
-
-    df["COUNTRY_B"] = country_b
-    df["OPERATOR_B"] = operator_b
-
-    # ========================================================
-    # SORT BY COMPOSITE SCORE
-    # ========================================================
-
-    return (
-        df
-        .sort_values(
-            "COMPOSITE_RISK_SCORE",
-            ascending=False
-        )
-        .reset_index(drop=True)
-    )
+    return df.sort_values(
+        "COMPOSITE_RISK_SCORE", ascending=False, na_position="last"
+    ).reset_index(drop=True)
 
 
 # ============================================================
@@ -849,169 +777,39 @@ def generate_warnings(
 # ============================================================
 
 def run_and_save():
-    """
-    Load Monte Carlo results, generate predictions,
-    classify risks, and save predictions.csv.
-    """
-
+    """Prefer analytical Pc results; fall back to MC results for older workflows."""
     config.ensure_dirs()
-
-    mc_path = (
-        config.RESULTS_DIR /
-        "monte_carlo_results.csv"
-    )
-
-    if not mc_path.exists():
-
-        print(
-            f"No Monte Carlo results found at "
-            f"{mc_path}. Run monte_carlo.py first."
-        )
-
+    analytic_path = config.RESULTS_DIR / "analytic_pc_results.csv"
+    mc_path = config.RESULTS_DIR / "monte_carlo_results.csv"
+    input_path = analytic_path if analytic_path.exists() else mc_path
+    if not input_path.exists():
+        print(f"No analytical or Monte Carlo result file found in {config.RESULTS_DIR}.")
         return None
 
-    # ========================================================
-    # LOAD MONTE CARLO RESULTS
-    # ========================================================
-
-    mc_results = pd.read_csv(
-        mc_path,
-        parse_dates=["TCA"]
-    )
-
-    # ========================================================
-    # BUILD PREDICTIONS
-    # ========================================================
-
-    predictions = build_predictions(
-        mc_results
-    )
-
-    # ========================================================
-    # SAVE PREDICTIONS
-    # ========================================================
-
-    output_path = (
-        config.RESULTS_DIR /
-        "predictions.csv"
-    )
-
-    predictions.to_csv(
-        output_path,
-        index=False
-    )
-
-    print(
-        f"Predictions written: {output_path}"
-    )
-
-    # ========================================================
-    # MONTE CARLO RISK COUNTS
-    # ========================================================
-
-    print(
-        "\nRisk level counts "
-        "(Monte Carlo collision probability):"
-    )
-
-    print(
-        predictions[
-            "RISK_LEVEL"
-        ]
-        .value_counts()
-        .to_string()
-    )
-
-    # ========================================================
-    # COMPOSITE RISK COUNTS
-    # ========================================================
-
-    print(
-        "\nComposite risk level counts "
-        "(probability + geometry + velocity + "
-        "uncertainty + distance):"
-    )
-
-    print(
-        predictions[
-            "COMPOSITE_RISK_LEVEL"
-        ]
-        .value_counts()
-        .to_string()
-    )
-
-    # ========================================================
-    # TOP RISK EVENTS
-    # ========================================================
-
-    print(
-        "\nTop risk events "
-        "(ranked by composite score):"
-    )
+    results = pd.read_csv(input_path)
+    predictions = build_predictions(results)
+    output_path = config.RESULTS_DIR / "predictions.csv"
+    predictions.to_csv(output_path, index=False)
 
     display_columns = [
-        "OBJECT_A",
-        "OBJECT_B",
-        "MISS_DISTANCE_KM",
-        "ALTITUDE_DIFFERENCE_KM",
-        "INCLINATION_DIFFERENCE_DEG",
-        "RELATIVE_VELOCITY_KM_S",
-        "SIGMA_A_KM",
-        "SIGMA_B_KM",
-        "ORBITAL_GEOMETRY_FACTOR",
-        "COLLISION_PROBABILITY_MC",
-        "COMPOSITE_RISK_SCORE",
-        "RISK_LEVEL",
-        "COMPOSITE_RISK_LEVEL",
+        "OBJECT_A", "OBJECT_B", "TCA", "MISS_DISTANCE_KM",
+        "ALTITUDE_DIFFERENCE_KM", "RELATIVE_VELOCITY_KM_S",
+        "SIGMA_A_KM", "SIGMA_B_KM", "ANALYTIC_PC",
+        "COLLISION_PROBABILITY_MC", "PROBABILITY_SOURCE",
+        "COMPOSITE_RISK_SCORE", "RISK_LEVEL", "COMPOSITE_RISK_LEVEL",
     ]
+    display_columns = [c for c in display_columns if c in predictions.columns]
+    if display_columns:
+        print(predictions[display_columns].head(10).to_string(index=False))
 
-    print(
-        predictions[
-            display_columns
-        ]
-        .head(10)
-        .to_string(index=False)
-    )
-
-    # ========================================================
-    # GENERATE WARNINGS
-    # ========================================================
-
-    warnings = generate_warnings(
-        predictions,
-        min_risk="MEDIUM"
-    )
-
-    warnings_path = (
-        config.RESULTS_DIR /
-        "warnings.txt"
-    )
-
-    with open(
-        warnings_path,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        f.write(
-            "\n".join(warnings)
-            if warnings
-            else "No MEDIUM/HIGH risk events detected.\n"
-        )
-
-    print(
-        f"\nWarnings written: "
-        f"{warnings_path} "
-        f"({len(warnings)} message(s))"
-    )
-
+    warnings = generate_warnings(predictions, min_risk="MEDIUM")
+    warnings_path = config.RESULTS_DIR / "warnings.txt"
+    with open(warnings_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(warnings) if warnings else "No MEDIUM/HIGH risk events detected.\n")
+    print(f"Predictions written: {output_path}")
+    print(f"Warnings written: {warnings_path} ({len(warnings)} message(s))")
     if warnings:
-
-        print(
-            "\n" +
-            warnings[0]
-        )
-
+        print("\n" + warnings[0])
     return predictions
 
 
