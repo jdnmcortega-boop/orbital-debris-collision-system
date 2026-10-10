@@ -55,6 +55,7 @@ def find_conjunctions(propagated_df, screening_distance_km=None):
     print(f"Forecast horizon: {config.FORECAST_HORIZON_DAYS} days")
 
     best_by_pair = {}
+    forecast_start = pd.Timestamp(df["TIME"].min())
     # Group by timestamp; all successful propagated objects are indexed together
     # and only pairs spatially close at that timestamp receive exact distance and
     # relative-velocity calculations.
@@ -98,7 +99,7 @@ def find_conjunctions(propagated_df, screening_distance_km=None):
                 "NORAD_B": int(norad_b),
                 "TCA": pd.Timestamp(timestamp).isoformat(),
                 "DAYS_TO_TCA": max(
-                    (pd.Timestamp(timestamp) - pd.Timestamp(df["TIME"].min())).total_seconds()
+                    (pd.Timestamp(timestamp) - forecast_start).total_seconds()
                     / 86400.0,
                     0.0,
                 ),
