@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.parse import urlencode
 import json
+import importlib
 
 import pandas as pd
 
@@ -545,10 +546,26 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
     # Monte Carlo is deliberately optional: the live risk forecast must not
     # depend on a sampling estimator that may be too slow or under-resolve rare events.
     # Users can still run modules.monte_carlo separately for validation.
+    _progress(progress_callback, "Reloading current prediction/QAE modules after repository updates")
+    # Streamlit can retain previously imported module objects across reruns.
+    # Reload these dependencies so a new live refresh does not call a stale
+    # prediction.py that still requires the removed MC output file.
+    importlib.invalidate_caches()
+    importlib.reload(analytic_pc)
+    importlib.reload(prediction)
+    importlib.reload(qae)
+    importlib.reload(false_positive)
+
     _progress(progress_callback, "Rebuilding risk classifications from analytical Pc")
     predictions = prediction.run_and_save()
     if predictions is None:
-        raise RuntimeError("Prediction generation returned no result.")
+        analytic_path = config.RESULTS_DIR / "analytic_pc_results.csv"
+        raise RuntimeError(
+            "Prediction generation returned no result. "
+            f"Expected analytical input at {analytic_path}; "
+            f"exists={analytic_path.exists()}. "
+            "Check logs for a stale module or missing analytical results."
+        )
 
     _progress(progress_callback, "Refreshing QAE estimate against the analytical Pc values")
     qae_results = qae.run_and_save()
