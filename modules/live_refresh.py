@@ -184,6 +184,10 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         .reset_index(drop=True)
     )
 
+    # Keep a complete copy of all validated downloaded debris for the persistent
+    # catalog; the smaller selection below is only for the expensive live forecast.
+    all_fresh_debris = fresh.copy()
+
     # Bound the expensive 30-day propagation to at most 180 objects while
     # retaining both debris and operational satellites in the live calculation.
     # Give each reachable debris family up to 40 slots (120 total), then use up
@@ -222,10 +226,15 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         regex=True,
         na=False,
     )
-    old_satellites = old.loc[~debris_mask].copy()
-    refreshed_ids = set(selected_debris["NORAD_CAT_ID"].astype("int64"))
-    old_satellites = old_satellites[~old_satellites["NORAD_CAT_ID"].isin(refreshed_ids)]
-    old_satellites = old_satellites.sort_values("EPOCH", ascending=False).head(60)
+    old_satellites_full = old.loc[~debris_mask].copy()
+    all_refreshed_ids = set(all_fresh_debris["NORAD_CAT_ID"].astype("int64"))
+    old_satellites_full = old_satellites_full[
+        ~old_satellites_full["NORAD_CAT_ID"].isin(all_refreshed_ids)
+    ]
+    # Only a representative satellite sample enters the 30-day live forecast.
+    old_satellites = old_satellites_full.sort_values(
+        "EPOCH", ascending=False
+    ).head(60).copy()
 
     # If fewer than 120 debris records were available, fill the remaining live
     # slots with additional current debris rather than exceed the 180-object cap.
@@ -269,10 +278,33 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         progress_callback,
         f"Validated {len(fresh)} refreshed orbital objects; replacing the stale input file",
     )
+    # Persist the complete merged catalog, not just the bounded forecast sample.
+    # Newly downloaded debris replaces older records from the same catalog IDs;
+    # every existing non-debris/satellite record is retained.
+    catalog_to_write = pd.concat(
+        [all_fresh_debris, old_satellites_full],
+        ignore_index=True,
+        sort=False,
+    )
+    catalog_to_write = catalog_to_write.drop(
+        columns=["_SOURCE_GROUP", "_IS_EXISTING"], errors="ignore"
+    )
+    catalog_to_write = catalog_to_write.drop_duplicates(
+        "NORAD_CAT_ID", keep="last"
+    ).sort_values("NORAD_CAT_ID").reset_index(drop=True)
+    catalog_extra = [
+        column for column in catalog_to_write.columns if column not in required
+    ]
+    catalog_to_write = catalog_to_write[required + catalog_extra]
+
     config.ORBITAL_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     temp_path = config.ORBITAL_DATA_FILE.with_suffix(".csv.tmp")
-    fresh.to_csv(temp_path, index=False)
+    catalog_to_write.to_csv(temp_path, index=False)
     temp_path.replace(config.ORBITAL_DATA_FILE)
+    _progress(
+        progress_callback,
+        f"Saved {len(catalog_to_write)} catalog records; selected {len(fresh)} objects for live forecasting",
+    )
     return fresh
 
 def _clear_live_outputs(write_empty_warning=True):
