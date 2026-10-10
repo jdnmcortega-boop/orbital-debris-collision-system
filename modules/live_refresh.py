@@ -51,6 +51,55 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
     if existing_df is None or existing_df.empty:
         raise ValueError("The existing curated orbital catalog is empty.")
 
+    # Default source of truth: use every object already stored in
+    # data/orbital_data.csv. This lets the hosted app rebuild forecasts even
+    # when its network cannot reach CelesTrak. Only an explicitly uploaded CSV
+    # opts into the external-data replacement path below.
+    if uploaded_csv is None:
+        catalog = existing_df.copy()
+        catalog.columns = [str(column).strip().upper() for column in catalog.columns]
+        required = data_loader.REQUIRED_COLUMNS
+        missing = [column for column in required if column not in catalog.columns]
+        if missing:
+            raise ValueError(
+                "The existing orbital_data.csv is missing required columns: "
+                + ", ".join(missing)
+            )
+
+        catalog["EPOCH"] = pd.to_datetime(catalog["EPOCH"], utc=True, errors="coerce")
+        catalog["NORAD_CAT_ID"] = pd.to_numeric(catalog["NORAD_CAT_ID"], errors="coerce")
+        numeric_columns = [
+            "MEAN_MOTION", "ECCENTRICITY", "INCLINATION", "RA_OF_ASC_NODE",
+            "ARG_OF_PERICENTER", "MEAN_ANOMALY", "BSTAR",
+            "MEAN_MOTION_DOT", "MEAN_MOTION_DDOT",
+        ]
+        for column in numeric_columns:
+            catalog[column] = pd.to_numeric(catalog[column], errors="coerce")
+
+        catalog = catalog.dropna(subset=["EPOCH", "NORAD_CAT_ID"] + numeric_columns)
+        catalog = catalog[
+            (catalog["MEAN_MOTION"] > 0)
+            & (catalog["ECCENTRICITY"] >= 0)
+            & (catalog["ECCENTRICITY"] < 1)
+            & (catalog["INCLINATION"] >= 0)
+            & (catalog["INCLINATION"] <= 180)
+        ]
+        catalog["NORAD_CAT_ID"] = catalog["NORAD_CAT_ID"].astype("int64")
+        catalog = (
+            catalog.sort_values("EPOCH")
+            .drop_duplicates("NORAD_CAT_ID", keep="last")
+            .sort_values("NORAD_CAT_ID")
+            .reset_index(drop=True)
+        )
+        if catalog.empty:
+            raise ValueError("No valid orbital objects remain in orbital_data.csv.")
+        _progress(
+            progress_callback,
+            f"Using {len(catalog)} validated objects from data/orbital_data.csv; no CelesTrak download required",
+        )
+        extra = [column for column in catalog.columns if column not in required]
+        return catalog[required + extra]
+
     curated_ids = set(
         pd.to_numeric(existing_df["NORAD_CAT_ID"], errors="coerce")
         .dropna().astype("int64").tolist()
