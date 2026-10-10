@@ -1,9 +1,9 @@
 """Refresh current orbital data and rebuild all present-day ORION-X outputs.
 
 Historical replay archives and fixed benchmark experiments are intentionally
-left untouched. Live data is refreshed from three debris families and bounded
-to a balanced sample of up to 180 objects to keep all-pairs screening practical.
-The current input file is replaced only after fresh data passes validation.
+left untouched. The live calculation uses a bounded sample of fresh debris plus
+a representative sample of the existing satellite catalog. The full curated
+CSV is never replaced by a debris-only download.
 """
 from __future__ import annotations
 
@@ -184,10 +184,11 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
         .reset_index(drop=True)
     )
 
-    # Select up to 60 objects per debris family (180 total). Preserve catalog
-    # IDs already used by the project first, then fill each family using the
-    # most recently updated valid orbital elements. This keeps the selection
-    # reproducible and prevents importing thousands of objects accidentally.
+    # Bound the expensive 30-day propagation to at most 180 objects while
+    # retaining both debris and operational satellites in the live calculation.
+    # Give each reachable debris family up to 40 slots (120 total), then use up
+    # to 60 non-debris objects from the curated catalog. If a debris family is
+    # unreachable, available satellite slots are filled with additional debris.
     selected_frames = []
     for group, _name_query in CELESTRAK_QUERIES:
         family = fresh[fresh["_SOURCE_GROUP"] == group].copy()
@@ -198,7 +199,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
             ["_IS_EXISTING", "EPOCH", "NORAD_CAT_ID"],
             ascending=[False, False, True],
         )
-        selected_frames.append(family.head(90))
+        selected_frames.append(family.head(40))
 
     if not selected_frames:
         raise RuntimeError(
@@ -206,26 +207,48 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
             "the existing orbital file was not replaced."
         )
 
-    fresh = pd.concat(selected_frames, ignore_index=True, sort=False)
+    selected_debris = pd.concat(selected_frames, ignore_index=True, sort=False)
+    selected_debris = selected_debris.drop_duplicates("NORAD_CAT_ID", keep="last")
 
-    # Keep the live dataset within the intended 150–180 object range. Raising
-    # the per-family cap to 90 allows two healthy queries to supply 150+ objects
-    # if the third CelesTrak query is temporarily unreachable.
-    if len(fresh) > 180:
-        fresh["_IS_EXISTING"] = fresh["NORAD_CAT_ID"].isin(curated_ids)
-        fresh = fresh.sort_values(
-            ["_IS_EXISTING", "EPOCH", "NORAD_CAT_ID"],
-            ascending=[False, False, True],
-        ).head(180)
+    # Keep curated satellites/non-debris records from the existing catalog.
+    # Do not carry forward the old debris rows, because refreshed debris replaces them.
+    old = existing_df.copy()
+    old["NORAD_CAT_ID"] = pd.to_numeric(old["NORAD_CAT_ID"], errors="coerce")
+    old = old.dropna(subset=["NORAD_CAT_ID"])
+    old["NORAD_CAT_ID"] = old["NORAD_CAT_ID"].astype("int64")
+    name_text = old["OBJECT_NAME"].fillna("").astype(str).str.upper()
+    debris_mask = name_text.str.contains(
+        r"\\bDEB\\b|DEBRIS|FRAGMENT|ROCKET BODY|\\bR/B\\b",
+        regex=True,
+        na=False,
+    )
+    old_satellites = old.loc[~debris_mask].copy()
+    refreshed_ids = set(selected_debris["NORAD_CAT_ID"].astype("int64"))
+    old_satellites = old_satellites[~old_satellites["NORAD_CAT_ID"].isin(refreshed_ids)]
+    old_satellites = old_satellites.sort_values("EPOCH", ascending=False).head(60)
 
+    # If fewer than 120 debris records were available, fill the remaining live
+    # slots with additional current debris rather than exceed the 180-object cap.
+    remaining_slots = max(0, 180 - len(selected_debris) - len(old_satellites))
+    if remaining_slots:
+        remaining_debris = fresh[
+            ~fresh["NORAD_CAT_ID"].isin(selected_debris["NORAD_CAT_ID"])
+        ].sort_values(["EPOCH", "NORAD_CAT_ID"], ascending=[False, True])
+        selected_debris = pd.concat(
+            [selected_debris, remaining_debris.head(remaining_slots)],
+            ignore_index=True,
+            sort=False,
+        )
+
+    fresh = pd.concat([selected_debris, old_satellites], ignore_index=True, sort=False)
     fresh = fresh.drop(columns=["_SOURCE_GROUP", "_IS_EXISTING"], errors="ignore")
+    fresh = fresh.drop_duplicates("NORAD_CAT_ID", keep="last")
     fresh = fresh.sort_values("NORAD_CAT_ID").reset_index(drop=True)
 
-    if len(fresh) < 150:
+    if len(fresh) < 30:
         raise RuntimeError(
-            f"Only {len(fresh)} valid debris objects were available from the reachable "
-            "CelesTrak families; at least 150 are required. The existing orbital file "
-            "was not replaced. "
+            f"Only {len(fresh)} valid objects were available after validation; "
+            "the existing orbital file was not replaced. "
             + (("Download errors: " + " | ".join(download_errors)) if download_errors else "")
         )
 
