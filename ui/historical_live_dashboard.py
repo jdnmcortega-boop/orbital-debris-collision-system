@@ -26,6 +26,61 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+
+# Defensive display-only normalization for mixed object columns. This module
+# may also be launched directly, bypassing ui/dashboard.py's wrapper.
+_original_st_dataframe = st.dataframe
+
+
+def _display_scalar(value):
+    try:
+        missing = pd.isna(value)
+        if isinstance(missing, (bool, type(pd.NA))) and bool(missing):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if value is None or value is pd.NA:
+        return None
+    return str(value)
+
+
+def _safe_display_frame(frame):
+    if not isinstance(frame, pd.DataFrame):
+        return frame
+    display = frame.copy()
+    for column in display.columns:
+        if display[column].dtype == object:
+            display[column] = display[column].map(_display_scalar)
+    return display
+
+
+def _safe_st_dataframe(data=None, *args, **kwargs):
+    is_styler = hasattr(data, "data") and isinstance(getattr(data, "data", None), pd.DataFrame)
+    if isinstance(data, pd.DataFrame):
+        data = _safe_display_frame(data)
+    elif is_styler:
+        data = _safe_display_frame(data.data).style
+    try:
+        return _original_st_dataframe(data, *args, **kwargs)
+    except Exception:
+        # Last resort affects only the rendered copy, never the scientific data.
+        if isinstance(data, pd.DataFrame):
+            fallback = data.copy()
+            for column in fallback.columns:
+                fallback[column] = fallback[column].map(_display_scalar)
+            return _original_st_dataframe(fallback, *args, **kwargs)
+        if hasattr(data, "data") and isinstance(getattr(data, "data", None), pd.DataFrame):
+            fallback = data.data.copy()
+            for column in fallback.columns:
+                fallback[column] = fallback[column].map(_display_scalar)
+            return _original_st_dataframe(fallback, *args, **kwargs)
+        raise
+
+
+st.dataframe = _safe_st_dataframe
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
