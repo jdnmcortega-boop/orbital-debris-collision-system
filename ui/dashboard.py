@@ -19,6 +19,45 @@ import importlib
 import pandas as pd
 import streamlit as st
 
+
+# Streamlit's Arrow serializer can fail when a displayed object column mixes
+# bytes, strings, and numeric values. Normalize only heterogeneous object
+# columns on a display copy; keep the underlying scientific data unchanged.
+_original_st_dataframe = st.dataframe
+
+
+def _normalize_mixed_object_columns(frame):
+    display = frame.copy()
+    changed = False
+    for column in display.columns:
+        series = display[column]
+        if series.dtype == object and series.dropna().map(type).nunique() > 1:
+            def _display_value(value):
+                if pd.isna(value):
+                    return None
+                if isinstance(value, bytes):
+                    return value.decode("utf-8", errors="replace")
+                return str(value)
+
+            display[column] = series.map(_display_value)
+            changed = True
+    return display if changed else frame
+
+
+def _arrow_safe_dataframe(data=None, *args, **kwargs):
+    if isinstance(data, pd.DataFrame):
+        data = _normalize_mixed_object_columns(data)
+    elif hasattr(data, "data") and isinstance(getattr(data, "data", None), pd.DataFrame):
+        # Pandas Styler: retain it unless a mixed column needs normalization.
+        frame = data.data
+        normalized = _normalize_mixed_object_columns(frame)
+        if normalized is not frame:
+            data = normalized.style
+    return _original_st_dataframe(data, *args, **kwargs)
+
+
+st.dataframe = _arrow_safe_dataframe
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
