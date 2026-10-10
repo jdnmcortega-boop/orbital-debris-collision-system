@@ -43,11 +43,14 @@ def _id_column(df):
     return next((c for c in ["NORAD_CAT_ID", "NORAD_ID", "OBJECT_ID"] if c in df.columns), None)
 
 
-def _object_row(df, name, name_col):
-    if df.empty or not name_col:
+def _object_row_by_key(df, object_key, key_to_position):
+    """Return the exact catalog row represented by a dropdown option."""
+    if df.empty or object_key not in key_to_position:
         return None
-    rows = df[df[name_col].astype(str) == str(name)]
-    return rows.iloc[0] if not rows.empty else None
+    position = key_to_position[object_key]
+    if position < 0 or position >= len(df):
+        return None
+    return df.iloc[position]
 
 
 def _safe_float(row, column, default=np.nan):
@@ -197,7 +200,9 @@ def _ssbm_number_above_lc(collisional_mass_kg, lc_m, scale_factor=1.0):
 def _sample_lc_population(n, lc_parent_m, min_lc_m, seed):
     """Inverse-sample a finite population from the SSBM cumulative power law."""
     rng = np.random.default_rng(int(seed))
-    n = max(int(n), 1)
+    n = max(int(n), 0)
+    if n == 0:
+        return np.empty(0, dtype=float)
     lo = max(float(min_lc_m), 1e-5)
     hi = max(float(lc_parent_m), lo * 1.001)
 
@@ -361,19 +366,57 @@ def render_collision_fragmentation_tab():
 
     st.subheader("1. Select the colliding pair")
 
+    # Keep each catalog record distinct. Names such as FENGYUN 1C DEB
+    # occur hundreds of times because each fragment has its own NORAD ID.
+    # Selecting by name alone silently reused the first matching record.
     if not objects.empty and name_col:
-        names = sorted(objects[name_col].astype(str).drop_duplicates().tolist())[:5000]
-        if len(names) >= 2:
-            a_name = st.selectbox("Debris / Object A", names, key="frag_object_a")
-            b_options = [n for n in names if n != a_name]
-            b_name = st.selectbox("Debris / Object B", b_options, key="frag_object_b")
+        objects = objects.reset_index(drop=True)
+        id_labels = (
+            objects[id_col].astype(str).str.strip()
+            if id_col else pd.Series([""] * len(objects), index=objects.index)
+        )
+        name_labels = objects[name_col].fillna("Unknown object").astype(str).str.strip()
+        option_keys = []
+        key_to_position = {}
+        key_to_label = {}
+        for pos in range(len(objects)):
+            catalog_id = id_labels.iloc[pos] if id_col else ""
+            # Position suffix guarantees uniqueness even if a source file has
+            # missing or duplicated catalog IDs.
+            key = f"{catalog_id or 'NO-ID'}::{pos}"
+            option_keys.append(key)
+            key_to_position[key] = pos
+            label = f"{name_labels.iloc[pos]} — NORAD {catalog_id}" if catalog_id else f"{name_labels.iloc[pos]} — row {pos + 1}"
+            key_to_label[key] = label
+
+        # Avoid an enormous dropdown while retaining the full catalog row
+        # identity. Sorting by the visible label makes the choices predictable.
+        option_keys = sorted(option_keys, key=lambda k: key_to_label[k].casefold())[:5000]
+        if len(option_keys) >= 2:
+            a_key = st.selectbox(
+                "Debris / Object A", option_keys,
+                format_func=lambda key: key_to_label[key],
+                key="frag_object_a",
+            )
+            b_options = [key for key in option_keys if key != a_key]
+            b_key = st.selectbox(
+                "Debris / Object B", b_options,
+                format_func=lambda key: key_to_label[key],
+                key="frag_object_b",
+            )
+            a_name = key_to_label[a_key]
+            b_name = key_to_label[b_key]
         else:
+            a_key = b_key = None
             a_name, b_name = "Object A", "Object B"
     else:
+        objects = pd.DataFrame()
+        key_to_position = {}
+        a_key = b_key = None
         a_name, b_name = "Object A", "Object B"
 
-    row_a = _object_row(objects, a_name, name_col)
-    row_b = _object_row(objects, b_name, name_col)
+    row_a = _object_row_by_key(objects, a_key, key_to_position) if a_key else None
+    row_b = _object_row_by_key(objects, b_key, key_to_position) if b_key else None
     pair_v, pair_v_source = _pair_relative_velocity_estimate(row_a, row_b)
 
     pair_id_a = _safe_float(row_a, id_col) if row_a is not None and id_col else np.nan
@@ -533,9 +576,9 @@ def render_collision_fragmentation_tab():
     n_est = _ssbm_number_above_lc(
         modeled_mass, min_lc_m, scale_factor=float(scale_factor)
     )
-    # Never let a valid breakup collapse to an arbitrary two-fragment display.
-    # Keep the full model population up to a UI-safe ceiling.
-    n_display = int(np.clip(n_est, 10, 5000))
+    # The model count is authoritative: never inflate it to a minimum display
+    # count. Render at most 5,000 representatives, or zero if the estimate is zero.
+    n_display = min(max(int(n_est), 0), 5000)
 
     st.subheader("4. SSBM collision regime and energetics")
     st.caption(
@@ -605,8 +648,8 @@ def render_collision_fragmentation_tab():
     st.write(
         f"**SSBM cumulative estimate:** {n_est:,} fragments ≥ {min_lc_mm:g} mm. "
         f"**Rendered:** {n_display:,} representative fragments. "
-        "The renderer caps the plotted sample at 5,000 for browser performance; "
-        "the cumulative SSBM count above is the model estimate."
+        "The renderer displays up to 5,000 fragments for browser performance; "
+        "the rendered sample never exceeds the model estimate."
     )
 
     metrics = st.columns(4)
