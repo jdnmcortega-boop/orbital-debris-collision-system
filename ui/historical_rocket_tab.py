@@ -207,9 +207,9 @@ def render_reconstruction_section():
         ],
         columns=["Metric", "Value"],
     )
-    # This summary intentionally mixes labels, identifiers, and formatted measurements.
-    # Normalize the Value column to strings so Streamlit/PyArrow never sees mixed int/text types.
-    result_table["Value"] = result_table["Value"].astype(str)
+    # Use pandas' explicit string dtype, not a mixed object column. This table
+    # combines numeric identifiers with formatted text and must remain Arrow-safe.
+    result_table = result_table.astype({"Metric": "string", "Value": "string"})
     st.dataframe(result_table, width="stretch", hide_index=True)
 
     st.info(
