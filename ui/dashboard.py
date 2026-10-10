@@ -100,6 +100,17 @@ def render_overview():
             "This can take several minutes. Keep this page open until the run finishes. "
             "A failed data download will not replace the existing orbital input file."
         )
+        st.caption(
+            "If the hosted app cannot reach CelesTrak, download a current GP/OMM CSV "
+            "from CelesTrak in your browser and upload it here. The upload must include "
+            "FENGYUN-1C, IRIDIUM-33, and/or COSMOS-2251 debris records."
+        )
+        uploaded_orbital_csv = st.file_uploader(
+            "Optional: upload current CelesTrak orbital CSV",
+            type=["csv"],
+            key="manual_orbital_csv_upload",
+            help="Use a CelesTrak GP/OMM CSV with the standard orbital-element columns.",
+        )
         if st.button(
             "♻️ Fetch current orbital data and replace live results",
             key="refresh_all_current_results",
@@ -113,12 +124,15 @@ def render_overview():
                 importlib.invalidate_caches()
                 importlib.reload(live_refresh)
                 with st.status("Starting ORION-X live refresh…", expanded=True) as status:
-                    summary = live_refresh.refresh_all_live_results(
-                        progress_callback=lambda message: status.update(
+                    refresh_kwargs = {
+                        "progress_callback": lambda message: status.update(
                             label=message,
                             state="running",
                         )
-                    )
+                    }
+                    if uploaded_orbital_csv is not None:
+                        refresh_kwargs["uploaded_csv"] = uploaded_orbital_csv.getvalue()
+                    summary = live_refresh.refresh_all_live_results(**refresh_kwargs)
                     status.update(
                         label="ORION-X live refresh completed",
                         state="complete",
