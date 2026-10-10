@@ -142,14 +142,14 @@ def render_overview():
     )
 
     st.caption(
-        "Build marker: live-refresh-hot-reload-2026-10-09b | "
+        "Build marker: analytical-pc-primary-2026-10-10 | "
         "Live-refresh module: modules.live_refresh (reload-on-click enabled)."
     )
 
     with st.expander("🔄 Refresh all current/live results", expanded=False):
         st.write(
             "Uses every valid object already stored in data/orbital_data.csv to rebuild "
-            "the 30-day propagation, conjunction, Monte Carlo, risk prediction, QAE "
+            "the 30-day propagation, conjunction, analytical collision probability (Pc), risk prediction, QAE "
             "comparison, false-positive, re-entry, and warning-security outputs. "
             "No CelesTrak connection or CSV upload is required for the normal refresh. "
             "Historical archives and fixed benchmark experiments are preserved."
@@ -226,7 +226,7 @@ def render_overview():
         a.metric("Current objects", refresh_summary.get("orbital_objects", 0))
         b.metric("Propagated states", f"{refresh_summary.get('propagated_states', 0):,}")
         c.metric("Conjunctions", refresh_summary.get("conjunctions", 0))
-        d.metric("MC result rows", refresh_summary.get("monte_carlo_rows", 0))
+        d.metric("Analytical Pc rows", refresh_summary.get("analytical_pc_rows", 0))
         st.caption(
             f"Forecast start: {refresh_summary.get('forecast_start_utc', '—')} | "
             f"Latest source epoch: {refresh_summary.get('data_epoch_latest_utc', '—')} | "
