@@ -679,51 +679,26 @@ def build_predictions(results_df):
 # ============================================================
 
 def format_warning_message(row):
-    """
-    Generate a simulated collision-warning message.
-    """
-
+    """Generate a simulated warning without assuming MC fields exist."""
+    probability = row.get("ANALYTIC_PC", row.get("COLLISION_PROBABILITY_MC", np.nan))
+    probability_source = row.get("PROBABILITY_SOURCE", "modeled probability")
+    mc_upper = row.get("MC_UPPER_95_PROBABILITY", np.nan)
     return (
         "=== COLLISION WARNING ===\n"
-        f"Object 1: {row['OBJECT_A']} "
-        f"(NORAD {row['NORAD_A']}) "
-        f"- {row['OPERATOR_A']} "
-        f"({row['COUNTRY_A']})\n"
-
-        f"Object 2: {row['OBJECT_B']} "
-        f"(NORAD {row['NORAD_B']}) "
-        f"- {row['OPERATOR_B']} "
-        f"({row['COUNTRY_B']})\n"
-
-        f"Predicted TCA: {row['TCA']}\n"
-
-        f"Miss distance: "
-        f"{row['MISS_DISTANCE_KM']:.3f} km\n"
-
-        f"Altitude difference: "
-        f"{row['ALTITUDE_DIFFERENCE_KM']:.3f} km\n"
-
-        f"Inclination difference: "
-        f"{row['INCLINATION_DIFFERENCE_DEG']:.3f} deg\n"
-
-        f"Relative velocity: "
-        f"{row['RELATIVE_VELOCITY_KM_S']:.3f} km/s\n"
-
-        f"Collision probability (MC): "
-        f"{row['COLLISION_PROBABILITY_MC']:.6e}\n"
-
-        f"Monte Carlo 95% upper probability: "
-        f"{row['MC_UPPER_95_PROBABILITY']:.6e}\n"
-
-        f"Orbital geometry factor: "
-        f"{row['ORBITAL_GEOMETRY_FACTOR']:.4f}\n"
-
-        f"Composite risk score: "
-        f"{row['COMPOSITE_RISK_SCORE']:.4f}\n"
-
-        f"Risk level: "
-        f"{row['COMPOSITE_RISK_LEVEL']}\n"
-
+        f"Object 1: {row.get('OBJECT_A', 'Unknown')} (NORAD {row.get('NORAD_A', 'N/A')}) - "
+        f"{row.get('OPERATOR_A', 'Unknown')} ({row.get('COUNTRY_A', 'Unknown')})\n"
+        f"Object 2: {row.get('OBJECT_B', 'Unknown')} (NORAD {row.get('NORAD_B', 'N/A')}) - "
+        f"{row.get('OPERATOR_B', 'Unknown')} ({row.get('COUNTRY_B', 'Unknown')})\n"
+        f"Predicted TCA: {row.get('TCA', 'N/A')}\n"
+        f"Miss distance: {float(row.get('MISS_DISTANCE_KM', np.nan)):.3f} km\n"
+        f"Altitude difference (semimajor-axis proxy): {float(row.get('ALTITUDE_DIFFERENCE_KM', np.nan)):.3f} km\n"
+        f"Inclination difference: {float(row.get('INCLINATION_DIFFERENCE_DEG', np.nan)):.3f} deg\n"
+        f"Relative velocity: {float(row.get('RELATIVE_VELOCITY_KM_S', np.nan)):.3f} km/s\n"
+        f"Collision probability ({probability_source}): {float(probability):.6e}\n"
+        f"Monte Carlo 95% upper probability (if available): {float(mc_upper):.6e}\n"
+        f"Orbital geometry factor: {float(row.get('ORBITAL_GEOMETRY_FACTOR', np.nan)):.4f}\n"
+        f"Composite risk score: {float(row.get('COMPOSITE_RISK_SCORE', np.nan)):.4f}\n"
+        f"Risk level: {row.get('COMPOSITE_RISK_LEVEL', 'UNAVAILABLE')}\n"
         "=========================\n"
     )
 
