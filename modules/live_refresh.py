@@ -43,7 +43,7 @@ def _progress(callback, message):
     if callback is not None:
         callback(message)
 
-def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None):
+def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None, uploaded_csv=None):
     """Fetch a balanced, validated sample of current objects from three debris families."""
     if existing_df is None:
         existing_df = data_loader.load_orbital_data()
@@ -60,78 +60,107 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
 
     frames = []
     download_errors = []
-    for group, name_query in CELESTRAK_QUERIES:
-        _progress(progress_callback, f"Downloading current CelesTrak name query: {group}")
-        # Try the narrow NAME query first, then the official GROUP endpoint.
-        # Hosted runners sometimes time out on one endpoint even when another
-        # CelesTrak route is reachable. Parse and validate each response before
-        # accepting it, so an HTML error page cannot be mistaken for orbital CSV.
-        name_query_encoded = urlencode({"NAME": name_query, "FORMAT": "CSV"})
-        group_query_encoded = urlencode({"GROUP": group, "FORMAT": "CSV"})
-        candidates = (
-            (f"https://celestrak.org/NORAD/elements/gp.php?{name_query_encoded}", "NAME query"),
-            (f"https://www.celestrak.org/NORAD/elements/gp.php?{name_query_encoded}", "www NAME query"),
-            (f"https://celestrak.org/NORAD/elements/gp.php?{group_query_encoded}", "GROUP query"),
+
+    if uploaded_csv is not None:
+        # Manual fallback for hosted environments that cannot reach CelesTrak.
+        # Accept an official GP/OMM CSV and retain the three debris families
+        # used by the live forecast. The CSV is validated below before any
+        # persistent input file is replaced.
+        uploaded = pd.read_csv(BytesIO(uploaded_csv))
+        uploaded.columns = [str(column).strip().upper() for column in uploaded.columns]
+        missing = [column for column in data_loader.REQUIRED_COLUMNS if column not in uploaded.columns]
+        if missing:
+            raise ValueError(
+                "Uploaded CSV is missing required GP fields: " + ", ".join(missing)
+            )
+        names = uploaded["OBJECT_NAME"].fillna("").astype(str).str.upper()
+        family_patterns = (
+            ("FENGYUN-1C-DEBRIS", r"FENGYUN[- ]?1C.*DEB"),
+            ("IRIDIUM-33-DEBRIS", r"IRIDIUM[- ]?33.*DEB"),
+            ("COSMOS-2251-DEBRIS", r"COSMOS[- ]?2251.*DEB"),
         )
-        group_df = None
-        attempt_errors = []
-        for attempt, (url, source_label) in enumerate(candidates, start=1):
-            try:
-                _progress(
-                    progress_callback,
-                    f"Requesting {group} via {source_label} ({attempt}/{len(candidates)})",
-                )
-                request = Request(
-                    url,
-                    headers={
-                        "User-Agent": "ORION-X-research-dashboard/1.0",
-                        "Accept": "text/csv,*/*",
-                    },
-                )
-                with urlopen(request, timeout=12) as response:
-                    payload = response.read()
-                if not payload.strip():
-                    raise RuntimeError("empty response")
-                candidate_df = pd.read_csv(BytesIO(payload))
-                candidate_df.columns = [
-                    str(column).strip().upper() for column in candidate_df.columns
-                ]
-                if "NORAD_CAT_ID" not in candidate_df.columns:
-                    raise RuntimeError("response is not a GP CSV (NORAD_CAT_ID missing)")
-                if candidate_df.empty:
-                    raise RuntimeError("valid CSV contained no objects")
-                group_df = candidate_df
-                _progress(
-                    progress_callback,
-                    f"Received {len(group_df)} rows for {group} via {source_label}",
-                )
-                break
-            except Exception as exc:
-                attempt_errors.append(f"{source_label}: {exc}")
-                if attempt < len(candidates):
+        family_frames = []
+        for group, pattern in family_patterns:
+            family = uploaded.loc[names.str.contains(pattern, regex=True, na=False)].copy()
+            if not family.empty:
+                family["_SOURCE_GROUP"] = group
+                family_frames.append(family)
+                _progress(progress_callback, f"Read {len(family)} rows for {group} from uploaded CSV")
+        if not family_frames:
+            raise ValueError(
+                "The uploaded CSV contains none of the configured debris families "
+                "(FENGYUN-1C, IRIDIUM-33, or COSMOS-2251 debris). Upload a current "
+                "CelesTrak GP CSV that includes those objects."
+            )
+        frames.extend(family_frames)
+    else:
+        for group, name_query in CELESTRAK_QUERIES:
+            _progress(progress_callback, f"Downloading current CelesTrak name query: {group}")
+            # Try the narrow NAME query first, then the official GROUP endpoint.
+            # Hosted runners sometimes time out on one endpoint even when another
+            # CelesTrak route is reachable. Parse and validate each response before
+            # accepting it, so an HTML error page cannot be mistaken for orbital CSV.
+            name_query_encoded = urlencode({"NAME": name_query, "FORMAT": "CSV"})
+            group_query_encoded = urlencode({"GROUP": group, "FORMAT": "CSV"})
+            candidates = (
+                (f"https://celestrak.org/NORAD/elements/gp.php?{name_query_encoded}", "NAME query"),
+                (f"https://www.celestrak.org/NORAD/elements/gp.php?{name_query_encoded}", "www NAME query"),
+                (f"https://celestrak.org/NORAD/elements/gp.php?{group_query_encoded}", "GROUP query"),
+            )
+            group_df = None
+            attempt_errors = []
+            for attempt, (url, source_label) in enumerate(candidates, start=1):
+                try:
                     _progress(
                         progress_callback,
-                        f"{source_label} failed for {group}; trying the next CelesTrak route…",
+                        f"Requesting {group} via {source_label} ({attempt}/{len(candidates)})",
                     )
+                    request = Request(
+                        url,
+                        headers={
+                            "User-Agent": "ORION-X-research-dashboard/1.0",
+                            "Accept": "text/csv,*/*",
+                        },
+                    )
+                    with urlopen(request, timeout=12) as response:
+                        payload = response.read()
+                    if not payload.strip():
+                        raise RuntimeError("empty response")
+                    candidate_df = pd.read_csv(BytesIO(payload))
+                    candidate_df.columns = [
+                        str(column).strip().upper() for column in candidate_df.columns
+                    ]
+                    if "NORAD_CAT_ID" not in candidate_df.columns:
+                        raise RuntimeError("response is not a GP CSV (NORAD_CAT_ID missing)")
+                    if candidate_df.empty:
+                        raise RuntimeError("valid CSV contained no objects")
+                    group_df = candidate_df
+                    _progress(
+                        progress_callback,
+                        f"Received {len(group_df)} rows for {group} via {source_label}",
+                    )
+                    break
+                except Exception as exc:
+                    attempt_errors.append(f"{source_label}: {exc}")
+                    if attempt < len(candidates):
+                        _progress(
+                            progress_callback,
+                            f"{source_label} failed for {group}; trying the next CelesTrak route…",
+                        )
 
-        if group_df is None:
-            # A family can be unavailable independently. Continue to the other
-            # families, but never overwrite the persistent CSV with partial or
-            # invalid data if every source fails.
-            download_errors.append(f"{group}: " + " | ".join(attempt_errors))
-            _progress(
-                progress_callback,
-                f"Skipping unavailable query {group}; trying the next debris family",
+            if group_df is None:
+                download_errors.append(f"{group}: " + " | ".join(attempt_errors))
+                _progress(
+                    progress_callback,
+                    f"Skipping unavailable query {group}; trying the next debris family",
+                )
+                continue
+            group_df["NORAD_CAT_ID"] = pd.to_numeric(
+                group_df["NORAD_CAT_ID"], errors="coerce"
             )
-            continue
-        group_df["NORAD_CAT_ID"] = pd.to_numeric(
-            group_df["NORAD_CAT_ID"], errors="coerce"
-        )
-        # Keep the complete returned debris family for selection below instead
-        # of filtering it to the old 60-object catalog.
-        group_df["_SOURCE_GROUP"] = group
-        if not group_df.empty:
-            frames.append(group_df)
+            group_df["_SOURCE_GROUP"] = group
+            if not group_df.empty:
+                frames.append(group_df)
 
     if not frames:
         details = " | ".join(download_errors) if download_errors else "No CSV rows returned."
@@ -333,7 +362,7 @@ def _clear_live_outputs(write_empty_warning=True):
         encoding="utf-8",
     )
 
-def refresh_all_live_results(progress_callback=None):
+def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
     """Refresh CelesTrak inputs, then rebuild the current-data result products."""
     config.ensure_dirs()
     _progress(progress_callback, "Validating the existing curated orbital catalog")
@@ -342,6 +371,7 @@ def refresh_all_live_results(progress_callback=None):
     fresh_df = fetch_current_curated_orbital_data(
         existing_df=old_df,
         progress_callback=progress_callback,
+        uploaded_csv=uploaded_csv,
     )
 
     # Fresh input is now validated and safely written. Clear every derived
