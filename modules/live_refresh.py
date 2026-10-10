@@ -265,13 +265,12 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
     # catalog; the smaller selection below is only for the expensive live forecast.
     all_fresh_debris = fresh.copy()
 
-    # Bound the expensive 30-day, 3-minute propagation to 40 objects.
-    # At 14,401 timestamps per object, 180 objects would create about 2.59M
-    # state rows and can exhaust the memory available to a hosted Streamlit app.
-    # Keep the original time resolution; reduce the live object sample instead.
-    live_object_cap = 40
-    debris_slots_per_family = 10
-    satellite_slots = 10
+    # Bound the expensive 30-day, 3-minute propagation to 120 objects.
+    # At 14,401 timestamps per object, this can create about 1.73M state rows.
+    # Keep the original time resolution while expanding the live object sample.
+    live_object_cap = 120
+    debris_slots_per_family = 35
+    satellite_slots = 15
     selected_frames = []
     for group, _name_query in CELESTRAK_QUERIES:
         family = fresh[fresh["_SOURCE_GROUP"] == group].copy()
