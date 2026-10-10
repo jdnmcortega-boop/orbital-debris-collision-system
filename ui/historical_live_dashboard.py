@@ -502,30 +502,29 @@ def render_live_tab():
             st.info(f"Conjunction chart unavailable: {exc}")
         st.dataframe(conjunctions, width="stretch")
 
-    # Always show the calculation control. If the propagation/conjunction
-    # files are missing or stale, the user can rebuild them from current orbital
-    # data instead of being left with a diagnostics section that cannot run.
+    # Current live workflow: analytical collision probability is primary.
+    # Monte Carlo is not required for the present-day forecast.
     st.divider()
-    st.subheader("🎯 Live conjunction + Monte Carlo calculation")
+    st.subheader("🎯 Live conjunction + analytical collision probability")
     st.caption(
-        "Rebuilds the 30-day SGP4 propagation grid, screens conjunctions, and "
-        "calculates collision probabilities from the newly generated inputs. "
-        "This can take time because every selected object is propagated across "
-        "the forecast grid."
+        "Rebuilds the 30-day SGP4 propagation grid, screens conjunctions, "
+        "calculates analytical collision probability (Pc) using modeled uncertainty, "
+        "and regenerates the risk forecast. QAE is an estimator comparison, not the "
+        "source of the orbital collision probability."
     )
 
     propagated_path = Path(config.PROPAGATED_GRID_FILE)
     conjunction_path = Path(config.CONJUNCTIONS_FILE)
-    mc_path = PROJECT_ROOT / "results" / "monte_carlo_results.csv"
+    analytic_path = PROJECT_ROOT / "results" / "analytic_pc_results.csv"
 
     s1, s2, s3 = st.columns(3)
     s1.metric("Propagation grid", "Ready" if propagated_path.exists() else "Missing")
     s2.metric("Conjunction file", "Ready" if conjunction_path.exists() else "Missing")
-    s3.metric("Saved MC result", "Ready" if mc_path.exists() else "Missing")
+    s3.metric("Analytical Pc result", "Ready" if analytic_path.exists() else "Missing")
 
     run_live_pipeline = st.button(
-        "▶ Rebuild live inputs and recalculate Monte Carlo",
-        key="live_run_hybrid_mc",
+        "▶ Rebuild live inputs and calculate analytical Pc",
+        key="live_run_analytical_pc",
         type="primary",
         width="stretch",
         disabled=orbital_df is None or orbital_df.empty,
@@ -539,126 +538,49 @@ def render_live_tab():
 
     if run_live_pipeline:
         try:
+            from modules import live_refresh
+            import importlib
+            importlib.invalidate_caches()
+            importlib.reload(live_refresh)
             with st.spinner(
-                "Step 1/3: propagating current orbital data over the 30-day grid…"
+                "Rebuilding current-data propagation, conjunctions, analytical Pc, and risk forecast…"
             ):
-                propagated, failed_objects = sgp4_propagation.propagate_and_save(
-                    orbital_df,
-                    output_path=propagated_path,
-                )
-
-            if propagated is None or propagated.empty:
-                st.error(
-                    "Propagation produced no valid states. Monte Carlo was not run. "
-                    f"Failed objects: {len(failed_objects) if failed_objects is not None else 0}."
-                )
-                st.stop()
-
-            with st.spinner("Step 2/3: screening the propagated objects for conjunctions…"):
-                new_conjunctions = conjunction_detection.detect_and_save(
-                    propagated_df=propagated,
-                    output_path=conjunction_path,
-                )
-
-            if new_conjunctions is None or new_conjunctions.empty:
-                st.session_state["live_hybrid_mc_result"] = pd.DataFrame()
-                st.session_state["live_hybrid_mc_timestamp"] = datetime.now(
-                    timezone.utc
-                ).strftime("%Y-%m-%d %H:%M:%S UTC")
-                st.warning(
-                    "The new propagation completed, but no pairs were inside the "
-                    f"{config.SCREENING_DISTANCE_KM:g} km screening distance. "
-                    "No collision probability rows were generated; this is not a software error."
-                )
-                st.rerun()
-
-            with st.spinner("Step 3/3: calculating Monte Carlo collision probabilities…"):
-                mc_result = monte_carlo.run_monte_carlo(
-                    new_conjunctions,
-                    propagated,
-                    orbital_data_df=orbital_df,
-                    verbose=False,
-                )
-                config.ensure_dirs()
-                mc_result.to_csv(mc_path, index=False)
-
-            st.session_state["live_hybrid_mc_result"] = mc_result
-            st.session_state["live_hybrid_mc_timestamp"] = datetime.now(
-                timezone.utc
-            ).strftime("%Y-%m-%d %H:%M:%S UTC")
-            st.session_state["live_failed_objects"] = failed_objects
+                summary = live_refresh.refresh_all_live_results()
+            st.session_state["live_analytical_pc_summary"] = summary
+            for stale_key in (
+                "live_hybrid_mc_result",
+                "live_hybrid_mc_timestamp",
+                "live_positions",
+                "live_failed",
+                "live_failed_objects",
+                "tracker_positions",
+                "tracker_failed",
+            ):
+                st.session_state.pop(stale_key, None)
+            st.cache_data.clear()
             st.success(
-                f"Pipeline completed: {len(propagated):,} propagated states, "
-                f"{len(new_conjunctions):,} conjunctions, and "
-                f"{len(mc_result):,} Monte Carlo results."
+                "Analytical live pipeline completed: "
+                f"{summary.get('conjunctions', 0):,} conjunctions, "
+                f"{summary.get('analytical_pc_rows', 0):,} analytical Pc rows."
             )
             st.rerun()
         except Exception as exc:
-            st.error(f"Live propagation / conjunction / Monte Carlo pipeline failed: {exc}")
+            st.error(f"Live analytical-probability pipeline failed: {exc}")
 
-    mc_result = st.session_state.get("live_hybrid_mc_result")
-    if mc_result is None and mc_path.exists():
-        try:
-            mc_result = pd.read_csv(mc_path)
-        except Exception as exc:
-            st.warning(f"Could not read saved Monte Carlo results: {exc}")
-
-    if mc_result is not None and not mc_result.empty:
-        if st.session_state.get("live_hybrid_mc_timestamp"):
-            st.caption(
-                "Last run in this Streamlit session: "
-                + st.session_state["live_hybrid_mc_timestamp"]
-            )
-        mc_view = mc_result.copy()
-        if "MC_LOG10_PROBABILITY" in mc_view.columns:
-            mc_view["MC_LOG10_PROBABILITY"] = pd.to_numeric(
-                mc_view["MC_LOG10_PROBABILITY"], errors="coerce"
-            )
-        if "MC_PROBABILITY_UNDERFLOW" in mc_view.columns:
-            underflow_count = int(
-                mc_view["MC_PROBABILITY_UNDERFLOW"]
-                .astype(str)
-                .str.strip()
-                .str.lower()
-                .isin(["true", "1", "yes"])
-                .sum()
-            )
-        else:
-            underflow_count = 0
-
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("MC conjunction rows", f"{len(mc_view):,}")
-        m2.metric(
-            "Importance-sampled rows",
-            int(
-                mc_view["MC_ESTIMATOR_MODE"].astype(str)
-                .eq("importance_sampling").sum()
-            ) if "MC_ESTIMATOR_MODE" in mc_view.columns else "—",
-        )
-        m3.metric("Float underflows", underflow_count)
-        m4.metric(
-            "MC samples per pair",
-            f"{int(mc_view['MC_SAMPLES'].max()):,}"
-            if "MC_SAMPLES" in mc_view.columns and not mc_view.empty else "—",
-        )
-
+    analytic_result = load_csv(str(analytic_path))
+    if analytic_result is not None and not analytic_result.empty:
+        st.subheader("Analytical collision-probability results")
         display_cols = [
             "OBJECT_A", "OBJECT_B", "TCA", "MISS_DISTANCE_KM",
             "RELATIVE_VELOCITY_KM_S", "SIGMA_A_KM", "SIGMA_B_KM",
-            "COLLISION_PROBABILITY_MC", "MC_LOG10_PROBABILITY",
-            "MC_ESTIMATOR_MODE", "MC_PROBABILITY_UNDERFLOW",
-            "MC_EFFECTIVE_SAMPLE_SIZE", "MC_CI_LOW", "MC_CI_HIGH",
+            "ANALYTIC_PC", "PROBABILITY_METHOD", "PROBABILITY_STATUS",
         ]
-        display_cols = [column for column in display_cols if column in mc_view.columns]
-        st.dataframe(mc_view[display_cols], width="stretch", hide_index=True)
-
-        if underflow_count:
-            st.info(
-                "Some ordinary floating-point probabilities underflow to 0. "
-                "Check MC_LOG10_PROBABILITY for the estimated rare-event scale; "
-                "a displayed 0 in those rows does not mean the estimator observed "
-                "zero probability."
-            )
+        display_cols = [column for column in display_cols if column in analytic_result.columns]
+        st.dataframe(analytic_result[display_cols], width="stretch", hide_index=True)
+    elif analytic_path.exists():
+        st.info("The analytical Pc result file exists but contains no conjunction rows.")
+    else:
+        st.info("No analytical Pc results saved yet. Run the analytical live pipeline above.")
 
     if predictions is not None and not predictions.empty:
         st.subheader("30-day risk forecast")
