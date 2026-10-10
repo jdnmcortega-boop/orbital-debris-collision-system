@@ -1,9 +1,9 @@
-"""Rebuild present-day ORION-X outputs from the saved orbital catalog by default.
+"""Rebuild present-day ORION-X outputs from a bounded orbital catalog.
 
 Historical replay archives and fixed benchmark experiments are intentionally
-left untouched. The default refresh uses all valid objects in orbital_data.csv;
-an explicitly uploaded CSV can opt into the separate CelesTrak replacement path.
-The saved orbital catalog is not overwritten during the default refresh.
+left untouched. Live propagation is capped at 120 objects to limit memory use.
+An explicitly uploaded CSV can opt into the CelesTrak replacement path.
+The saved catalog is not overwritten during the default refresh.
 """
 from __future__ import annotations
 
@@ -93,9 +93,62 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
         )
         if catalog.empty:
             raise ValueError("No valid orbital objects remain in orbital_data.csv.")
+
+        # Keep the saved catalog and the live forecast workload aligned.
+        # Prefer 35 objects from each debris family plus 15 non-debris objects;
+        # fill any unused slots from the remaining catalog, never above 120.
+        live_object_cap = 120
+        if len(catalog) > live_object_cap:
+            names = catalog["OBJECT_NAME"].fillna("").astype(str).str.upper()
+            selected_parts = []
+            for pattern in (
+                r"^FENGYUN 1C DEB$",
+                r"^IRIDIUM 33 DEB$",
+                r"^COSMOS 2251 DEB$",
+            ):
+                family = catalog.loc[names.str.match(pattern, na=False)].sort_values(
+                    "EPOCH", ascending=False
+                ).head(35)
+                if not family.empty:
+                    selected_parts.append(family)
+
+            selected = (
+                pd.concat(selected_parts, ignore_index=False)
+                if selected_parts
+                else catalog.iloc[0:0].copy()
+            )
+            selected_ids = set(selected["NORAD_CAT_ID"].astype("int64").tolist())
+            debris_mask = names.str.contains(
+                r"\bDEB\b|DEBRIS|FRAGMENT|ROCKET BODY|\bR/B\b",
+                regex=True,
+                na=False,
+            )
+            non_debris = catalog.loc[~debris_mask].sort_values(
+                "EPOCH", ascending=False
+            )
+            non_debris = non_debris[
+                ~non_debris["NORAD_CAT_ID"].isin(selected_ids)
+            ].head(15)
+            selected = pd.concat([selected, non_debris], ignore_index=False)
+            selected_ids = set(selected["NORAD_CAT_ID"].astype("int64").tolist())
+
+            remaining = catalog[
+                ~catalog["NORAD_CAT_ID"].isin(selected_ids)
+            ].sort_values("EPOCH", ascending=False)
+            slots = max(0, live_object_cap - len(selected))
+            if slots:
+                selected = pd.concat(
+                    [selected, remaining.head(slots)], ignore_index=False
+                )
+            catalog = (
+                selected.drop_duplicates("NORAD_CAT_ID", keep="last")
+                .sort_values("NORAD_CAT_ID")
+                .reset_index(drop=True)
+            )
+
         _progress(
             progress_callback,
-            f"Using {len(catalog)} validated objects from data/orbital_data.csv; no CelesTrak download required",
+            f"Using {len(catalog)} validated objects from data/orbital_data.csv (live cap: {live_object_cap}); no CelesTrak download required",
         )
         extra = [column for column in catalog.columns if column not in required]
         return catalog[required + extra]
@@ -358,14 +411,10 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
         progress_callback,
         f"Validated {len(fresh)} refreshed orbital objects; replacing the stale input file",
     )
-    # Persist the complete merged catalog, not just the bounded forecast sample.
-    # Newly downloaded debris replaces older records from the same catalog IDs;
-    # every existing non-debris/satellite record is retained.
-    catalog_to_write = pd.concat(
-        [all_fresh_debris, old_satellites_full],
-        ignore_index=True,
-        sort=False,
-    )
+    # Persist only the bounded, validated sample actually sent to propagation.
+    # This prevents a later refresh from silently restoring hundreds of objects
+    # and exceeding the hosted app's memory budget.
+    catalog_to_write = fresh.copy()
     catalog_to_write = catalog_to_write.drop(
         columns=["_SOURCE_GROUP", "_IS_EXISTING"], errors="ignore"
     )
