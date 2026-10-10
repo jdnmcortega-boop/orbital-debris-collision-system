@@ -112,7 +112,7 @@ def render_overview():
             help="Leave empty to use all valid objects in data/orbital_data.csv. An uploaded CSV overrides that default.",
         )
         if st.button(
-            "♻️ Fetch current orbital data and replace live results",
+            "♻️ Rebuild live results from orbital_data.csv",
             key="refresh_all_current_results",
             type="primary",
             width="stretch",
