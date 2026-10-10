@@ -90,26 +90,26 @@ def render_overview():
 
     with st.expander("🔄 Refresh all current/live results", expanded=False):
         st.write(
-            "Downloads fresh CelesTrak orbital elements for the project's curated "
-            "debris catalog, then rebuilds the 30-day propagation, conjunction, "
-            "Monte Carlo, risk prediction, QAE comparison, false-positive, re-entry, "
-            "and warning-security outputs. Historical archives and fixed benchmark "
-            "experiments are preserved."
+            "Uses every valid object already stored in data/orbital_data.csv to rebuild "
+            "the 30-day propagation, conjunction, Monte Carlo, risk prediction, QAE "
+            "comparison, false-positive, re-entry, and warning-security outputs. "
+            "No CelesTrak connection or CSV upload is required for the normal refresh. "
+            "Historical archives and fixed benchmark experiments are preserved."
         )
         st.warning(
             "This can take several minutes. Keep this page open until the run finishes. "
-            "A failed data download will not replace the existing orbital input file."
+            "The existing orbital_data.csv is used by default and is not overwritten."
         )
         st.caption(
-            "If the hosted app cannot reach CelesTrak, download a current GP/OMM CSV "
-            "from CelesTrak in your browser and upload it here. The upload must include "
-            "FENGYUN-1C, IRIDIUM-33, and/or COSMOS-2251 debris records."
+            "Optional only: upload a separate current CelesTrak GP/OMM CSV if you want "
+            "to replace the default orbital_data.csv source for this refresh. Otherwise, "
+            "leave the uploader empty and the app will use the objects already in the file."
         )
         uploaded_orbital_csv = st.file_uploader(
-            "Optional: upload current CelesTrak orbital CSV",
+            "Optional override: upload a different orbital CSV",
             type=["csv"],
             key="manual_orbital_csv_upload",
-            help="Use a CelesTrak GP/OMM CSV with the standard orbital-element columns.",
+            help="Leave empty to use all valid objects in data/orbital_data.csv. An uploaded CSV overrides that default.",
         )
         if st.button(
             "♻️ Fetch current orbital data and replace live results",
