@@ -22,6 +22,7 @@ from modules import (
     sgp4_propagation,
     conjunction_detection,
     monte_carlo,
+    analytic_pc,
     prediction,
     preprocessing,
     false_positive,
@@ -442,6 +443,7 @@ def _clear_live_outputs(write_empty_warning=True):
         config.PROPAGATED_GRID_FILE,
         config.CONJUNCTIONS_FILE,
         config.RESULTS_DIR / "monte_carlo_results.csv",
+        config.RESULTS_DIR / "analytic_pc_results.csv",
         config.RESULTS_DIR / "predictions.csv",
         config.RESULTS_DIR / "qae_comparison.csv",
         config.RESULTS_DIR / "false_positive_analysis.csv",
@@ -536,21 +538,19 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
             "status": "completed_no_conjunctions",
         }
 
-    _progress(progress_callback, "Recalculating collision probabilities with hybrid Monte Carlo")
-    mc_results = monte_carlo.run_monte_carlo(
-        conjunctions,
-        propagated,
-        orbital_data_df=fresh_df,
-        verbose=False,
-    )
-    mc_results.to_csv(config.RESULTS_DIR / "monte_carlo_results.csv", index=False)
+    _progress(progress_callback, "Calculating primary analytical collision probabilities (Pc)")
+    analytic_results = analytic_pc.build_analytic_pc_results(conjunctions, fresh_df)
+    analytic_results.to_csv(config.RESULTS_DIR / "analytic_pc_results.csv", index=False)
 
-    _progress(progress_callback, "Rebuilding 30-day risk classifications and warning messages")
+    # Monte Carlo is deliberately optional: the live risk forecast must not
+    # depend on a sampling estimator that may be too slow or under-resolve rare events.
+    # Users can still run modules.monte_carlo separately for validation.
+    _progress(progress_callback, "Rebuilding risk classifications from analytical Pc")
     predictions = prediction.run_and_save()
     if predictions is None:
         raise RuntimeError("Prediction generation returned no result.")
 
-    _progress(progress_callback, "Refreshing QAE-vs-classical comparison for current conjunctions")
+    _progress(progress_callback, "Refreshing QAE estimate against the analytical Pc values")
     qae_results = qae.run_and_save()
 
     _progress(progress_callback, "Refreshing false-positive analysis")
@@ -569,7 +569,7 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
         "propagated_states": int(len(propagated)),
         "failed_objects": int(len(failed_objects)),
         "conjunctions": int(len(conjunctions)),
-        "monte_carlo_rows": int(len(mc_results)),
+        "monte_carlo_rows": 0,\n        "analytical_pc_rows": int(len(analytic_results)),
         "prediction_rows": int(len(predictions)),
         "qae_rows": int(len(qae_results)) if qae_results is not None else 0,
         "false_positive_rows": int(len(fp_results)) if fp_results is not None else 0,
