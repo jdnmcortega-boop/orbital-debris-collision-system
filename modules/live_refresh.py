@@ -62,23 +62,24 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
     download_errors = []
     for group, name_query in CELESTRAK_QUERIES:
         _progress(progress_callback, f"Downloading current CelesTrak name query: {group}")
-        # CelesTrak supports NAME queries. Request only the debris family needed
-        # instead of the full GROUP response, which can be slow from hosted apps.
-        query = urlencode({"NAME": name_query, "FORMAT": "CSV"})
-        # Some hosted environments time out against one hostname while the
-        # www alias remains reachable. Try both official CelesTrak hostnames
-        # before marking this debris family unavailable.
-        base_urls = (
-            f"https://celestrak.org/NORAD/elements/gp.php?{query}",
-            f"https://www.celestrak.org/NORAD/elements/gp.php?{query}",
+        # Try the narrow NAME query first, then the official GROUP endpoint.
+        # Hosted runners sometimes time out on one endpoint even when another
+        # CelesTrak route is reachable. Parse and validate each response before
+        # accepting it, so an HTML error page cannot be mistaken for orbital CSV.
+        name_query_encoded = urlencode({"NAME": name_query, "FORMAT": "CSV"})
+        group_query_encoded = urlencode({"GROUP": group, "FORMAT": "CSV"})
+        candidates = (
+            (f"https://celestrak.org/NORAD/elements/gp.php?{name_query_encoded}", "NAME query"),
+            (f"https://www.celestrak.org/NORAD/elements/gp.php?{name_query_encoded}", "www NAME query"),
+            (f"https://celestrak.org/NORAD/elements/gp.php?{group_query_encoded}", "GROUP query"),
         )
-        payload = None
-        last_error = None
-        for attempt, url in enumerate(base_urls, start=1):
+        group_df = None
+        attempt_errors = []
+        for attempt, (url, source_label) in enumerate(candidates, start=1):
             try:
                 _progress(
                     progress_callback,
-                    f"Requesting {group} from CelesTrak host {attempt}/2",
+                    f"Requesting {group} via {source_label} ({attempt}/{len(candidates)})",
                 )
                 request = Request(
                     url,
@@ -87,44 +88,42 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
                         "Accept": "text/csv,*/*",
                     },
                 )
-                with urlopen(request, timeout=12) as response:
+                with urlopen(request, timeout=20) as response:
                     payload = response.read()
                 if not payload.strip():
-                    raise RuntimeError("CelesTrak returned an empty response.")
+                    raise RuntimeError("empty response")
+                candidate_df = pd.read_csv(BytesIO(payload))
+                candidate_df.columns = [
+                    str(column).strip().upper() for column in candidate_df.columns
+                ]
+                if "NORAD_CAT_ID" not in candidate_df.columns:
+                    raise RuntimeError("response is not a GP CSV (NORAD_CAT_ID missing)")
+                if candidate_df.empty:
+                    raise RuntimeError("valid CSV contained no objects")
+                group_df = candidate_df
+                _progress(
+                    progress_callback,
+                    f"Received {len(group_df)} rows for {group} via {source_label}",
+                )
                 break
             except Exception as exc:
-                last_error = exc
-                if attempt < len(base_urls):
+                attempt_errors.append(f"{source_label}: {exc}")
+                if attempt < len(candidates):
                     _progress(
                         progress_callback,
-                        f"CelesTrak host failed for {group}; trying its www alias…",
+                        f"{source_label} failed for {group}; trying the next CelesTrak route…",
                     )
 
-        if payload is None or not payload.strip():
-            # A single CelesTrak query can time out independently. Try the
-            # remaining families before deciding whether enough fresh objects
-            # are available; never replace the input file with partial data.
-            download_errors.append(f"{group}: {last_error}")
+        if group_df is None:
+            # A family can be unavailable independently. Continue to the other
+            # families, but never overwrite the persistent CSV with partial or
+            # invalid data if every source fails.
+            download_errors.append(f"{group}: " + " | ".join(attempt_errors))
             _progress(
                 progress_callback,
                 f"Skipping unavailable query {group}; trying the next debris family",
             )
             continue
-
-        if not payload.strip():
-            continue
-        try:
-            group_df = pd.read_csv(BytesIO(payload))
-        except Exception as exc:
-            raise RuntimeError(
-                f"CelesTrak returned unreadable CSV for {group}: {exc}"
-            ) from exc
-
-        group_df.columns = [str(column).strip().upper() for column in group_df.columns]
-        if "NORAD_CAT_ID" not in group_df.columns:
-            raise ValueError(
-                f"CelesTrak group {group} is missing NORAD_CAT_ID."
-            )
         group_df["NORAD_CAT_ID"] = pd.to_numeric(
             group_df["NORAD_CAT_ID"], errors="coerce"
         )
