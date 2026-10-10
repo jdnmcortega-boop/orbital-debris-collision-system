@@ -218,7 +218,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
     old["NORAD_CAT_ID"] = old["NORAD_CAT_ID"].astype("int64")
     name_text = old["OBJECT_NAME"].fillna("").astype(str).str.upper()
     debris_mask = name_text.str.contains(
-        r"\\bDEB\\b|DEBRIS|FRAGMENT|ROCKET BODY|\\bR/B\\b",
+        r"\bDEB\b|DEBRIS|FRAGMENT|ROCKET BODY|\bR/B\b",
         regex=True,
         na=False,
     )
