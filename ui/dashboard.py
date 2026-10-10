@@ -20,40 +20,59 @@ import pandas as pd
 import streamlit as st
 
 
-# Streamlit's Arrow serializer can fail when a displayed object column mixes
-# bytes, strings, and numeric values. Normalize only heterogeneous object
-# columns on a display copy; keep the underlying scientific data unchanged.
+# Streamlit's Arrow serializer can fail on object columns that contain a mix
+# of bytes, strings, and numbers (for example, a CSV column named "Value").
+# Normalize object columns on display copies before Streamlit sees them. The
+# scientific DataFrames and their numeric columns remain unchanged.
 _original_st_dataframe = st.dataframe
 
 
-def _normalize_mixed_object_columns(frame):
-    display = frame.copy()
-    changed = False
-    for column in display.columns:
-        series = display[column]
-        if series.dtype == object and series.dropna().map(type).nunique() > 1:
-            def _display_value(value):
-                if pd.isna(value):
-                    return None
-                if isinstance(value, bytes):
-                    return value.decode("utf-8", errors="replace")
-                return str(value)
+def _safe_display_value(value):
+    # Handle scalar nulls without assuming pd.isna always returns a bool.
+    try:
+        missing = pd.isna(value)
+        if isinstance(missing, (bool, type(pd.NA))) and bool(missing):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if value is None or value is pd.NA:
+        return None
+    return str(value)
 
-            display[column] = series.map(_display_value)
-            changed = True
-    return display if changed else frame
+
+def _arrow_safe_display_copy(frame):
+    if not isinstance(frame, pd.DataFrame):
+        return frame
+    display = frame.copy()
+    for column in display.columns:
+        # Converting every object column is intentional: it avoids relying on
+        # pandas' inferred object subtype, which can vary across pandas versions.
+        if display[column].dtype == object:
+            display[column] = display[column].map(_safe_display_value)
+    return display
 
 
 def _arrow_safe_dataframe(data=None, *args, **kwargs):
     if isinstance(data, pd.DataFrame):
-        data = _normalize_mixed_object_columns(data)
+        data = _arrow_safe_display_copy(data)
     elif hasattr(data, "data") and isinstance(getattr(data, "data", None), pd.DataFrame):
-        # Pandas Styler: retain it unless a mixed column needs normalization.
-        frame = data.data
-        normalized = _normalize_mixed_object_columns(frame)
-        if normalized is not frame:
-            data = normalized.style
-    return _original_st_dataframe(data, *args, **kwargs)
+        # A Styler can also contain heterogeneous object columns.
+        frame = _arrow_safe_display_copy(data.data)
+        data = frame.style
+    try:
+        return _original_st_dataframe(data, *args, **kwargs)
+    except Exception:
+        # Last-resort display-only fallback for a serializer failure not caught
+        # by dtype inspection. Do not alter the source DataFrame.
+        if isinstance(data, pd.DataFrame):
+            fallback = data.copy()
+            for column in fallback.columns:
+                if fallback[column].dtype == object:
+                    fallback[column] = fallback[column].map(_safe_display_value)
+            return _original_st_dataframe(fallback, *args, **kwargs)
+        raise
 
 
 st.dataframe = _arrow_safe_dataframe
