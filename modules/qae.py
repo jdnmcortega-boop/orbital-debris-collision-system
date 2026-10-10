@@ -403,56 +403,89 @@ def compare_methods(
 # ============================================================
 
 def run_and_save(num_eval_qubits=6, shots=200):
+    """Run QAE against Pc already computed by the analytical live pipeline.
+
+    The classical baseline samples a known probability and is not a second
+    orbital-state Monte Carlo calculation. It is retained only as an estimator
+    comparison under a matched query budget.
+    """
     config.ensure_dirs()
-    conj_path = config.CONJUNCTIONS_FILE
+    input_path = config.RESULTS_DIR / "analytic_pc_results.csv"
+    if not input_path.exists():
+        # Backward-compatible fallback for older runs.
+        input_path = config.CONJUNCTIONS_FILE
+        if not input_path.exists():
+            print("No analytical Pc results or conjunction file found.")
+            return None
 
-    if not conj_path.exists():
-        print(
-            f"No conjunctions file found at {conj_path}. "
-            "Run conjunction_detection first."
+    source = pd.read_csv(input_path)
+    if source.empty:
+        print("Analytical Pc input is empty.")
+        return None
+
+    if "ANALYTIC_PC" not in source.columns:
+        source["ANALYTIC_PC"] = source["MISS_DISTANCE_KM"].apply(
+            lambda d: analytic_collision_probability(d)
         )
-        return None
-
-    conjunctions = pd.read_csv(conj_path)
-    if conjunctions.empty:
-        print("Conjunctions file is empty.")
-        return None
 
     rows = []
-    for _, row in conjunctions.iterrows():
-        result = compare_methods(
-            row["MISS_DISTANCE_KM"],
+    for _, row in source.iterrows():
+        probability = pd.to_numeric(pd.Series([row.get("ANALYTIC_PC")]), errors="coerce").iloc[0]
+        if pd.isna(probability):
+            rows.append({
+                "OBJECT_A": row.get("OBJECT_A", "Unknown"),
+                "OBJECT_B": row.get("OBJECT_B", "Unknown"),
+                "ANALYTIC_PC": np.nan,
+                "QAE_ESTIMATE": np.nan,
+                "QAE_ERROR": np.nan,
+                "MC_ESTIMATE": np.nan,
+                "MC_ERROR": np.nan,
+                "COMPARISON_STATUS": "NOT_CALCULATED: analytical Pc unavailable",
+                "CLASSICAL_BASELINE_TYPE": "Not run",
+            })
+            continue
+
+        probability = float(np.clip(probability, 0.0, 1.0))
+        qae_result = run_qae(
+            probability,
             num_eval_qubits=num_eval_qubits,
             shots=shots,
         )
-        result["OBJECT_A"] = row["OBJECT_A"]
-        result["OBJECT_B"] = row["OBJECT_B"]
-        rows.append(result)
+        classical_result = run_classical_mc(
+            probability,
+            n_samples=qae_result["oracle_calls"],
+        )
+        rows.append({
+            "OBJECT_A": row.get("OBJECT_A", "Unknown"),
+            "NORAD_A": row.get("NORAD_A", np.nan),
+            "OBJECT_B": row.get("OBJECT_B", "Unknown"),
+            "NORAD_B": row.get("NORAD_B", np.nan),
+            "TCA": row.get("TCA", ""),
+            "MISS_DISTANCE_KM": row.get("MISS_DISTANCE_KM", np.nan),
+            "SIGMA_A_KM": row.get("SIGMA_A_KM", np.nan),
+            "SIGMA_B_KM": row.get("SIGMA_B_KM", np.nan),
+            "ANALYTIC_PC": probability,
+            "QAE_ESTIMATE": qae_result["qae_estimate"],
+            "QAE_ERROR": qae_result["qae_error"],
+            "QAE_ORACLE_CALLS": qae_result["oracle_calls"],
+            "QAE_RUNTIME_SEC": qae_result["runtime_sec"],
+            "QAE_EVAL_QUBITS": qae_result["eval_qubits"],
+            "QAE_ESTIMATOR": qae_result["estimator"],
+            "MC_ESTIMATE": classical_result["mc_estimate"],
+            "MC_ERROR": classical_result["mc_error"],
+            "MC_SAMPLES": classical_result["n_samples"],
+            "MC_RUNTIME_SEC": classical_result["runtime_sec"],
+            "MC_HITS": classical_result["hits"],
+            "MC_CI_LOW": classical_result["ci_low"],
+            "MC_CI_HIGH": classical_result["ci_high"],
+            "COMPARISON_STATUS": "ESTIMATOR_COMPARISON",
+            "CLASSICAL_BASELINE_TYPE": "Matched-budget sampling of known analytical Pc; not orbital Monte Carlo",
+        })
 
     output = pd.DataFrame(rows)
     output_path = config.RESULTS_DIR / "qae_comparison.csv"
     output.to_csv(output_path, index=False)
-
-    print(f"\nResults written: {output_path}")
-    print(
-        output[
-            [
-                "OBJECT_A",
-                "OBJECT_B",
-                "ANALYTIC_PC",
-                "QAE_ESTIMATE",
-                "QAE_ERROR",
-                "MC_ESTIMATE",
-                "MC_ERROR",
-                "MC_HITS",
-                "MC_CI_LOW",
-                "MC_CI_HIGH",
-                "QAE_ORACLE_CALLS",
-                "MC_SAMPLES",
-            ]
-        ].to_string(index=False)
-    )
-
+    print(f"QAE vs analytical-Pc estimator comparison written: {output_path}")
     return output
 
 
