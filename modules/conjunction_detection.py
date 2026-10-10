@@ -1,7 +1,6 @@
-from itertools import combinations
-
 import numpy as np
 import pandas as pd
+from scipy.spatial import cKDTree
 
 import config
 
@@ -42,68 +41,74 @@ def find_conjunctions(propagated_df, screening_distance_km=None):
     df["TIME"] = pd.to_datetime(df["TIME"], utc=True)
     df = df.sort_values(["NORAD_CAT_ID", "TIME"])
 
+    # Spatial indexing avoids testing every pair at every timestamp.
+    # This preserves the existing sampled-grid definition of a conjunction:
+    # any pair within the screening distance at a shared sampled time is retained.
+    # The search is still an approximation between grid points; it is not a
+    # continuous-time collision guarantee.
+    df = df.dropna(subset=[
+        "NORAD_CAT_ID", "X_KM", "Y_KM", "Z_KM",
+        "VX_KM_S", "VY_KM_S", "VZ_KM_S", "TIME",
+    ])
     object_ids = df["NORAD_CAT_ID"].dropna().unique()
-    n_pairs = len(object_ids) * (len(object_ids) - 1) // 2
-    print(f"Objects: {len(object_ids)} | Candidate pairs: {n_pairs}")
+    print(f"Objects: {len(object_ids)} | spatial-index screening enabled")
     print(f"Forecast horizon: {config.FORECAST_HORIZON_DAYS} days")
 
-    by_object = {
-        norad: g.set_index("TIME").sort_index()
-        for norad, g in df.groupby("NORAD_CAT_ID")
-    }
-
-    results = []
-
-    for norad_a, norad_b in combinations(object_ids, 2):
-        a_full = by_object[norad_a]
-        b_full = by_object[norad_b]
-
-        common_times = a_full.index.intersection(b_full.index)
-        if len(common_times) == 0:
+    best_by_pair = {}
+    # Group by timestamp; all successful propagated objects are indexed together
+    # and only pairs spatially close at that timestamp receive exact distance and
+    # relative-velocity calculations.
+    for timestamp, frame in df.groupby("TIME", sort=True):
+        if len(frame) < 2:
+            continue
+        frame = frame.drop_duplicates("NORAD_CAT_ID", keep="last")
+        if len(frame) < 2:
             continue
 
-        a = a_full.loc[common_times]
-        b = b_full.loc[common_times]
-
-        dx = a["X_KM"].to_numpy() - b["X_KM"].to_numpy()
-        dy = a["Y_KM"].to_numpy() - b["Y_KM"].to_numpy()
-        dz = a["Z_KM"].to_numpy() - b["Z_KM"].to_numpy()
-        distances = np.sqrt(dx**2 + dy**2 + dz**2)
-
-        min_idx = int(np.argmin(distances))
-        min_distance = float(distances[min_idx])
-
-        if min_distance > screening_distance_km:
-            continue
-
-        tca = pd.Timestamp(common_times[min_idx])
-
-        # The forecast epoch is the earliest shared timestamp for this
-        # pair. Since all objects use the same propagation grid, this is
-        # normally the same timestamp for every pair.
-        forecast_start = pd.Timestamp(common_times[0])
-        days_to_tca = max(
-            (tca - forecast_start).total_seconds() / 86400.0,
-            0.0,
+        positions = frame[["X_KM", "Y_KM", "Z_KM"]].to_numpy(dtype=float)
+        pairs = cKDTree(positions).query_pairs(
+            r=float(screening_distance_km),
+            output_type="ndarray",
         )
+        if pairs.size == 0:
+            continue
 
-        dvx = float(a["VX_KM_S"].to_numpy()[min_idx] - b["VX_KM_S"].to_numpy()[min_idx])
-        dvy = float(a["VY_KM_S"].to_numpy()[min_idx] - b["VY_KM_S"].to_numpy()[min_idx])
-        dvz = float(a["VZ_KM_S"].to_numpy()[min_idx] - b["VZ_KM_S"].to_numpy()[min_idx])
-        relative_velocity = float(np.sqrt(dvx**2 + dvy**2 + dvz**2))
+        ids = frame["NORAD_CAT_ID"].to_numpy()
+        names = frame["OBJECT_NAME"].fillna("").astype(str).to_numpy()
+        velocities = frame[["VX_KM_S", "VY_KM_S", "VZ_KM_S"]].to_numpy(dtype=float)
+        for idx_a, idx_b in pairs:
+            norad_a, norad_b = ids[idx_a], ids[idx_b]
+            # Stable ordering prevents the same pair being recorded in reverse.
+            if str(norad_a) > str(norad_b):
+                idx_a, idx_b = idx_b, idx_a
+                norad_a, norad_b = norad_b, norad_a
+            delta_position = positions[idx_a] - positions[idx_b]
+            distance = float(np.linalg.norm(delta_position))
+            key = (int(norad_a), int(norad_b))
+            previous = best_by_pair.get(key)
+            if previous is not None and previous["MISS_DISTANCE_KM"] <= distance:
+                continue
 
-        results.append({
-            "OBJECT_A": a["OBJECT_NAME"].iloc[0],
-            "NORAD_A": norad_a,
-            "OBJECT_B": b["OBJECT_NAME"].iloc[0],
-            "NORAD_B": norad_b,
-            "TCA": tca.isoformat(),
-            "DAYS_TO_TCA": round(days_to_tca, 4),
-            "FORECAST_HORIZON_DAYS": config.FORECAST_HORIZON_DAYS,
-            "FORECAST_STATUS": "FORECASTED_CONJUNCTION",
-            "MISS_DISTANCE_KM": min_distance,
-            "RELATIVE_VELOCITY_KM_S": relative_velocity,
-        })
+            delta_velocity = velocities[idx_a] - velocities[idx_b]
+            relative_velocity = float(np.linalg.norm(delta_velocity))
+            best_by_pair[key] = {
+                "OBJECT_A": names[idx_a],
+                "NORAD_A": int(norad_a),
+                "OBJECT_B": names[idx_b],
+                "NORAD_B": int(norad_b),
+                "TCA": pd.Timestamp(timestamp).isoformat(),
+                "DAYS_TO_TCA": max(
+                    (pd.Timestamp(timestamp) - pd.Timestamp(df["TIME"].min())).total_seconds()
+                    / 86400.0,
+                    0.0,
+                ),
+                "FORECAST_HORIZON_DAYS": config.FORECAST_HORIZON_DAYS,
+                "FORECAST_STATUS": "FORECASTED_CONJUNCTION",
+                "MISS_DISTANCE_KM": distance,
+                "RELATIVE_VELOCITY_KM_S": relative_velocity,
+            }
+
+    results = list(best_by_pair.values())
 
     columns = [
         "OBJECT_A", "NORAD_A", "OBJECT_B", "NORAD_B",
