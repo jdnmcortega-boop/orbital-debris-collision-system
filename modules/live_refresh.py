@@ -1,9 +1,9 @@
-"""Refresh current orbital data and rebuild all present-day ORION-X outputs.
+"""Rebuild present-day ORION-X outputs from the saved orbital catalog by default.
 
 Historical replay archives and fixed benchmark experiments are intentionally
-left untouched. The live calculation uses a bounded sample of fresh debris plus
-a representative sample of the existing satellite catalog. The full curated
-CSV is never replaced by a debris-only download.
+left untouched. The default refresh uses all valid objects in orbital_data.csv;
+an explicitly uploaded CSV can opt into the separate CelesTrak replacement path.
+The saved orbital catalog is not overwritten during the default refresh.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def _progress(callback, message):
         callback(message)
 
 def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None, uploaded_csv=None):
-    """Fetch a balanced, validated sample of current objects from three debris families."""
+    """Use saved orbital_data.csv by default; optionally process an uploaded CelesTrak CSV."""
     if existing_df is None:
         existing_df = data_loader.load_orbital_data()
 
