@@ -88,7 +88,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None)
                         "Accept": "text/csv,*/*",
                     },
                 )
-                with urlopen(request, timeout=20) as response:
+                with urlopen(request, timeout=12) as response:
                     payload = response.read()
                 if not payload.strip():
                     raise RuntimeError("empty response")
