@@ -265,11 +265,13 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
     # catalog; the smaller selection below is only for the expensive live forecast.
     all_fresh_debris = fresh.copy()
 
-    # Bound the expensive 30-day propagation to at most 180 objects while
-    # retaining both debris and operational satellites in the live calculation.
-    # Give each reachable debris family up to 40 slots (120 total), then use up
-    # to 60 non-debris objects from the curated catalog. If a debris family is
-    # unreachable, available satellite slots are filled with additional debris.
+    # Bound the expensive 30-day, 3-minute propagation to 40 objects.
+    # At 14,401 timestamps per object, 180 objects would create about 2.59M
+    # state rows and can exhaust the memory available to a hosted Streamlit app.
+    # Keep the original time resolution; reduce the live object sample instead.
+    live_object_cap = 40
+    debris_slots_per_family = 10
+    satellite_slots = 10
     selected_frames = []
     for group, _name_query in CELESTRAK_QUERIES:
         family = fresh[fresh["_SOURCE_GROUP"] == group].copy()
@@ -280,7 +282,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
             ["_IS_EXISTING", "EPOCH", "NORAD_CAT_ID"],
             ascending=[False, False, True],
         )
-        selected_frames.append(family.head(40))
+        selected_frames.append(family.head(debris_slots_per_family))
 
     if not selected_frames:
         raise RuntimeError(
@@ -291,8 +293,9 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
     selected_debris = pd.concat(selected_frames, ignore_index=True, sort=False)
     selected_debris = selected_debris.drop_duplicates("NORAD_CAT_ID", keep="last")
 
-    # Keep curated satellites/non-debris records from the existing catalog.
-    # Do not carry forward the old debris rows, because refreshed debris replaces them.
+    # Keep curated satellites/non-debris records in the persisted catalog, but
+    # use only a small representative sample for the expensive live forecast.
+    # Refreshed debris records replace old records with the same NORAD catalog IDs.
     old = existing_df.copy()
     old["NORAD_CAT_ID"] = pd.to_numeric(old["NORAD_CAT_ID"], errors="coerce")
     old = old.dropna(subset=["NORAD_CAT_ID"])
@@ -308,14 +311,15 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
     old_satellites_full = old_satellites_full[
         ~old_satellites_full["NORAD_CAT_ID"].isin(all_refreshed_ids)
     ]
-    # Only a representative satellite sample enters the 30-day live forecast.
     old_satellites = old_satellites_full.sort_values(
         "EPOCH", ascending=False
-    ).head(60).copy()
+    ).head(satellite_slots).copy()
 
-    # If fewer than 120 debris records were available, fill the remaining live
-    # slots with additional current debris rather than exceed the 180-object cap.
-    remaining_slots = max(0, 180 - len(selected_debris) - len(old_satellites))
+    # Fill unused forecast slots with additional refreshed debris, never exceeding
+    # the compute budget. The full validated debris catalog is still persisted below.
+    remaining_slots = max(
+        0, live_object_cap - len(selected_debris) - len(old_satellites)
+    )
     if remaining_slots:
         remaining_debris = fresh[
             ~fresh["NORAD_CAT_ID"].isin(selected_debris["NORAD_CAT_ID"])
