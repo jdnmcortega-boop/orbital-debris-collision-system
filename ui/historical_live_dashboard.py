@@ -179,11 +179,16 @@ def format_warning_level(value):
 
 
 def build_historical_event(row) -> HistoricalValidationEvent:
+    confirmation = str(row.get("confirmation", "confirmed")).strip().lower()
+    outcome = "CONFIRMED_COLLISION" if confirmation == "confirmed" else (
+        "CANDIDATE_UNCONFIRMED" if confirmation == "candidate" else "UNKNOWN"
+    )
     return HistoricalValidationEvent(
         event_id=str(row["event_id"]),
         event_time_utc=utc_datetime(str(row["event_time_utc"])),
         object_a_norad=int(row["object_a_norad"]),
         object_b_norad=int(row["object_b_norad"]),
+        ground_truth_outcome=outcome,
     )
 
 
@@ -193,6 +198,7 @@ def execute_historical_validation(
     event_time_text: str,
     norad_a: int,
     norad_b: int,
+    ground_truth_outcome: str,
     archive_text: tuple[str, ...],
     rewind_days: int,
     snapshot_step_hours: int,
@@ -205,6 +211,7 @@ def execute_historical_validation(
         event_time_utc=utc_datetime(event_time_text),
         object_a_norad=norad_a,
         object_b_norad=norad_b,
+        ground_truth_outcome=ground_truth_outcome,
     )
     archives = merge_tle_archives(Path(p) for p in archive_text)
     return run_historical_validation(
@@ -449,9 +456,17 @@ def render_historical_tab():
     c3.metric("Object B", int(row["object_b_norad"]))
     c4.metric("Replay archive files", len(archives))
 
+    ground_truth_label = str(row.get("confirmation", "confirmed")).strip().upper()
+    if ground_truth_label == "CONFIRMED":
+        st.success("Historical ground truth: CONFIRMED COLLISION. This is the recorded outcome, not a prediction made by ORION-X.")
+    elif ground_truth_label == "CANDIDATE":
+        st.warning("Historical ground truth: UNCONFIRMED CANDIDATE. Do not count this event as a proven collision.")
+    else:
+        st.info("Historical outcome is not confirmed in the event catalog.")
     st.info(
         "Ground truth is kept separate from prediction. The collision timestamp is "
-        "the evaluation boundary; future TLEs are never used for an earlier replay snapshot."
+        "the evaluation boundary; future TLEs are never used for an earlier replay snapshot. "
+        "A LOW modeled probability for a confirmed collision is recorded as a possible missed warning, not rewritten as HIGH."
     )
 
     with st.expander("Historical event details", expanded=True):
@@ -488,6 +503,7 @@ def render_historical_tab():
         int(forecast_step_minutes),
         int(qae_eval_qubits),
         int(qae_shots),
+        str(row.get("confirmation", "confirmed")),
     )
 
     if run:
@@ -498,6 +514,7 @@ def render_historical_tab():
                     str(row["event_time_utc"]),
                     int(row["object_a_norad"]),
                     int(row["object_b_norad"]),
+                    ("CONFIRMED_COLLISION" if str(row.get("confirmation", "confirmed")).strip().lower() == "confirmed" else "CANDIDATE_UNCONFIRMED" if str(row.get("confirmation", "")).strip().lower() == "candidate" else "UNKNOWN"),
                     tuple(str(p) for p in archives),
                     int(rewind_days),
                     int(snapshot_step_hours),
@@ -519,14 +536,35 @@ def render_historical_tab():
     result = result.copy()
     result["DAYS_BEFORE_EVENT"] = pd.to_numeric(result["DAYS_BEFORE_EVENT"], errors="coerce")
 
-    high_alert = result[result["FORECAST_PROXIMITY_ALERT_LEVEL"].astype(str).str.upper() == "HIGH"]
-    high_probability = result[result["ANALYTIC_RISK_LEVEL"].astype(str).str.upper() == "HIGH"]
+    pre_event_result = result[result.get("PREDICTION_TIME_IS_PRE_EVENT", result["DAYS_BEFORE_EVENT"] > 0).astype(bool)]
+    high_alert = pre_event_result[pre_event_result["FORECAST_PROXIMITY_ALERT_LEVEL"].astype(str).str.upper() == "HIGH"]
+    high_probability = pre_event_result[pre_event_result["ANALYTIC_RISK_LEVEL"].astype(str).str.upper() == "HIGH"]
+    medium_high_probability = pre_event_result[pre_event_result["ANALYTIC_RISK_LEVEL"].astype(str).str.upper().isin(["MEDIUM", "HIGH"])]
+    medium_high_proximity = pre_event_result[pre_event_result["FORECAST_PROXIMITY_ALERT_LEVEL"].astype(str).str.upper().isin(["MEDIUM", "HIGH"])]
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Snapshots", len(result))
     c2.metric("First HIGH proximity", format_days(high_alert["DAYS_BEFORE_EVENT"].max() if not high_alert.empty else None))
     c3.metric("First HIGH probability", format_days(high_probability["DAYS_BEFORE_EVENT"].max() if not high_probability.empty else None))
-    c4.metric("Actual collision", str(row["event_time_utc"]).replace("T", " ").replace("Z", " UTC"))
+    c4.metric("Actual outcome", "CONFIRMED COLLISION" if str(row.get("confirmation", "confirmed")).lower() == "confirmed" else "UNCONFIRMED")
+
+    diag_cols = st.columns(3)
+    diag_cols[0].metric("Pre-event Pc warnings", int(len(medium_high_probability)))
+    diag_cols[1].metric("Pre-event proximity warnings", int(len(medium_high_proximity)))
+    diag_cols[2].metric("Pre-event snapshots", int(len(pre_event_result)))
+    if "HIGH_THRESHOLD_REACHABLE_UNDER_ASSUMED_SIGMA" in result.columns and not bool(result["HIGH_THRESHOLD_REACHABLE_UNDER_ASSUMED_SIGMA"].all()):
+        max_pc = pd.to_numeric(result["PC_MAX_AT_ZERO_MISS_UNDER_ASSUMED_SIGMA"], errors="coerce").max()
+        threshold = pd.to_numeric(result["HIGH_PC_THRESHOLD"], errors="coerce").max()
+        st.warning(
+            f"The configured uncertainty makes the HIGH Pc threshold unreachable even at zero miss distance: "
+            f"maximum modeled Pc ≈ {max_pc:.3e}, HIGH threshold = {threshold:.3e}. "
+            "This is a limitation of the assumptions, not evidence the real collision was low-risk. "
+            "Do not force Pc higher; validate historical covariance or report sensitivity scenarios separately."
+        )
+    if str(row.get("confirmation", "confirmed")).strip().lower() == "confirmed" and len(medium_high_probability) == 0:
+        st.error("Validation result: MISSED PC WARNING in the pre-event replay window. The event is confirmed, but no pre-event snapshot reached MEDIUM/HIGH modeled Pc.")
+    elif str(row.get("confirmation", "confirmed")).strip().lower() == "confirmed":
+        st.info("Validation result: at least one pre-event snapshot reached MEDIUM/HIGH modeled Pc. Check the warning lead time and false-alarm behavior against non-collision events.")
 
     st.subheader("Two warning channels")
     st.caption(
@@ -578,7 +616,7 @@ def render_historical_tab():
         f"the proximity channel is **{format_warning_level(selected_row.get('FORECAST_PROXIMITY_ALERT_LEVEL'))}** "
         f"while the probability channel is **{format_warning_level(selected_row.get('ANALYTIC_RISK_LEVEL'))}** "
         f"with P(collision) = **{format_probability(selected_row.get('ANALYTIC_PC'))}**. "
-        "These channels are intentionally not collapsed into one label."
+        "These channels are intentionally not collapsed into one label. The historical outcome remains separate from both predictions."
     )
 
     st.plotly_chart(historical_replay_figure(result, selected_day), width="stretch")
@@ -613,8 +651,13 @@ def render_historical_tab():
         "FORECAST_MISS_DISTANCE_KM",
         "FORECAST_RELATIVE_VELOCITY_KM_S",
         "FORECAST_PROXIMITY_ALERT_LEVEL",
+        "GROUND_TRUTH_OUTCOME",
+        "PREDICTION_TIME_IS_PRE_EVENT",
         "ANALYTIC_PC",
         "ANALYTIC_RISK_LEVEL",
+        "PC_MAX_AT_ZERO_MISS_UNDER_ASSUMED_SIGMA",
+        "HIGH_THRESHOLD_REACHABLE_UNDER_ASSUMED_SIGMA",
+        "MODEL_DIAGNOSTIC",
         "QAE_ESTIMATE",
         "MC_ESTIMATE",
         "QAE_EVAL_QUBITS_USED",
