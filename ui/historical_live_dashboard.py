@@ -776,16 +776,56 @@ def render_live_tab():
             ]
             validation_cols = [column for column in validation_cols if column in cdm_validation.columns]
             st.dataframe(cdm_validation[validation_cols], width="stretch", hide_index=True)
-            match_source = None
+            # Compare against whichever available ORION-X source has the greatest
+            # overlap with the uploaded CDM object pairs. An old analytical result
+            # file must not silently take precedence over a better-matching current
+            # conjunction file.
             analytic_path_for_cdm = PROJECT_ROOT / "results" / "analytic_pc_results.csv"
             analytic_for_cdm = load_csv(str(analytic_path_for_cdm))
             required_match_cols = {"NORAD_A", "NORAD_B", "TCA"}
-            if analytic_for_cdm is not None and required_match_cols.issubset(analytic_for_cdm.columns):
-                match_source = analytic_for_cdm
-                match_source_label = "analytical Pc results"
-            elif conjunctions is not None and not conjunctions.empty:
-                match_source = conjunctions
-                match_source_label = "screened conjunctions"
+
+            def _diagnostic_id(value):
+                if value is None or pd.isna(value):
+                    return ""
+                text_value = str(value).strip()
+                try:
+                    numeric = float(text_value)
+                    if numeric.is_integer():
+                        return str(int(numeric))
+                except (TypeError, ValueError):
+                    pass
+                return text_value.upper()
+
+            cdm_pairs = set()
+            for _, cdm_row in cdm_frame.iterrows():
+                id_a = _diagnostic_id(cdm_row.get("_CDM_OBJECT1"))
+                id_b = _diagnostic_id(cdm_row.get("_CDM_OBJECT2"))
+                if id_a and id_b:
+                    cdm_pairs.add(tuple(sorted((id_a, id_b))))
+
+            source_candidates = []
+            if analytic_for_cdm is not None and not analytic_for_cdm.empty and required_match_cols.issubset(analytic_for_cdm.columns):
+                source_candidates.append(("analytical Pc results", analytic_for_cdm))
+            if conjunctions is not None and not conjunctions.empty and required_match_cols.issubset(conjunctions.columns):
+                source_candidates.append(("screened conjunctions", conjunctions))
+
+            def _source_pair_overlap(source_frame):
+                pairs = set()
+                for _, source_row in source_frame.iterrows():
+                    id_a = _diagnostic_id(source_row.get("NORAD_A"))
+                    id_b = _diagnostic_id(source_row.get("NORAD_B"))
+                    if id_a and id_b:
+                        pairs.add(tuple(sorted((id_a, id_b))))
+                return len(cdm_pairs.intersection(pairs))
+
+            if source_candidates:
+                match_source_label, match_source = max(
+                    source_candidates,
+                    key=lambda item: _source_pair_overlap(item[1]),
+                )
+            else:
+                match_source = None
+                match_source_label = "no compatible ORION-X result source"
             if match_source is not None and not match_source.empty:
                 # Diagnose why zero strict matches occur before comparing Pc.
                 # Pair overlap ignores object order; TCA tolerance remains unchanged.
