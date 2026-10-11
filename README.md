@@ -102,9 +102,13 @@ data/historical_events/iridium33_cosmos2251/historical_tles.3le
 
 ### PRESENT — Live 30-Day Forecast
 
-Uses the current orbital dataset in `data/orbital_data.csv` and the
-existing current-data SGP4/conjunction/prediction pipeline. Historical
-collision outcomes are not fed into this predictor.
+Uses the orbital dataset in `data/orbital_data.csv` and the
+current-data SGP4/conjunction/prediction pipeline. The curated CSV currently
+contains 150 unique NORAD objects. The live forecast pipeline is configured
+to process up to 150 objects, including debris and non-debris satellites;
+at a 3-minute step across 30 days, this can produce about 2.16 million
+propagated state rows before conjunction screening. Historical collision
+outcomes are not fed into this predictor.
 
 The live mode provides:
 
