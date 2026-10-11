@@ -50,6 +50,7 @@ class HistoricalValidationEvent:
     event_time_utc: datetime
     object_a_norad: int
     object_b_norad: int
+    ground_truth_outcome: str = "CONFIRMED_COLLISION"
 
 
 def utc_datetime(value: str) -> datetime:
@@ -225,12 +226,35 @@ def run_historical_validation(
         analytic_risk = classify_risk(analytic_pc)
         mc_risk = classify_risk(mc["mc_estimate"])
 
+        # Diagnostic only: under this isotropic 2-D Gaussian model, Pc is
+        # maximized at zero miss distance. Do not use this value to inflate Pc.
+        effective_sigma = (
+            float(sigma_km) if sigma_km is not None
+            else float(getattr(config, "POSITION_UNCERTAINTY_KM", 1.0))
+        )
+        effective_radius = (
+            float(hard_body_radius_km) if hard_body_radius_km is not None
+            else float(getattr(config, "HARD_BODY_RADIUS_KM", 0.02))
+        )
+        combined_sigma = np.sqrt(2.0) * effective_sigma
+        pc_max_zero_miss = (
+            float(-np.expm1(-(effective_radius ** 2) / (2.0 * combined_sigma ** 2)))
+            if effective_sigma > 0 and effective_radius > 0 else float("nan")
+        )
+        high_threshold = float(getattr(config, "RISK_THRESHOLD_HIGH", 1e-4))
+        high_threshold_reachable = bool(
+            np.isfinite(pc_max_zero_miss) and pc_max_zero_miss >= high_threshold
+        )
+        ground_truth = str(event.ground_truth_outcome or "UNKNOWN").strip().upper()
+
         # Operational probability risk is deliberately based on the analytic
         # model probability, not a single noisy rare-event MC realization.
         # MC remains a matched-budget validation benchmark.
         rows.append(
             {
                 "EVENT_ID": event.event_id,
+                "GROUND_TRUTH_OUTCOME": ground_truth,
+                "PREDICTION_TIME_IS_PRE_EVENT": bool(snapshot < event.event_time_utc),
                 "SNAPSHOT_TIME": snapshot.isoformat(),
                 "DAYS_BEFORE_EVENT": (event.event_time_utc - snapshot).total_seconds() / 86400.0,
                 "NORAD_A": event.object_a_norad,
@@ -246,6 +270,13 @@ def run_historical_validation(
                 "FORECAST_PROXIMITY_ALERT_LEVEL": proximity_alert,
                 "ANALYTIC_PC": analytic_pc,
                 "ANALYTIC_RISK_LEVEL": analytic_risk,
+                "PC_MAX_AT_ZERO_MISS_UNDER_ASSUMED_SIGMA": pc_max_zero_miss,
+                "HIGH_PC_THRESHOLD": high_threshold,
+                "HIGH_THRESHOLD_REACHABLE_UNDER_ASSUMED_SIGMA": high_threshold_reachable,
+                "MODEL_DIAGNOSTIC": (
+                    "HIGH threshold unreachable under assumed sigma; validate covariance or document sensitivity analysis"
+                    if not high_threshold_reachable else "HIGH threshold reachable under assumed sigma"
+                ),
                 "QAE_EVAL_QUBITS_REQUESTED": int(qae_eval_qubits),
                 "QAE_EVAL_QUBITS_USED": int(effective_qae_qubits),
                 "QAE_ESTIMATOR": qae["estimator"],
@@ -266,6 +297,15 @@ def run_historical_validation(
                 "RISK_LEVEL": analytic_risk,
                 "ACTUAL_EVENT_TIME": event.event_time_utc.isoformat(),
                 "ACTUAL_EVENT": int(snapshot == event.event_time_utc),
+                "ACTUAL_COLLISION_AT_EVENT_BOUNDARY": bool(
+                    ground_truth == "CONFIRMED_COLLISION" and snapshot == event.event_time_utc
+                ),
+                "PRE_EVENT_PC_WARNING": bool(
+                    snapshot < event.event_time_utc and analytic_risk in {"MEDIUM", "HIGH"}
+                ),
+                "PRE_EVENT_PROXIMITY_WARNING": bool(
+                    snapshot < event.event_time_utc and proximity_alert in {"MEDIUM", "HIGH"}
+                ),
             }
         )
 
@@ -291,6 +331,13 @@ def run_historical_validation(
         float(medium_probability["DAYS_BEFORE_EVENT"].max()) if not medium_probability.empty else None
     )
     output.attrs["qae_qubit_upgrades"] = int(qae_upgrades)
+    pre_event = output[output["PREDICTION_TIME_IS_PRE_EVENT"]]
+    output.attrs["ground_truth_outcome"] = str(event.ground_truth_outcome or "UNKNOWN").upper()
+    output.attrs["pre_event_pc_warning_count"] = int(pre_event["PRE_EVENT_PC_WARNING"].sum())
+    output.attrs["pre_event_proximity_warning_count"] = int(pre_event["PRE_EVENT_PROXIMITY_WARNING"].sum())
+    output.attrs["high_threshold_reachable"] = bool(
+        output["HIGH_THRESHOLD_REACHABLE_UNDER_ASSUMED_SIGMA"].all()
+    )
 
     return output
 
