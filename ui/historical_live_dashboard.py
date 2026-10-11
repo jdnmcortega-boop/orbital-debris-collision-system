@@ -181,7 +181,7 @@ def format_warning_level(value):
 def build_historical_event(row) -> HistoricalValidationEvent:
     confirmation = str(row.get("confirmation", "confirmed")).strip().lower()
     outcome = "CONFIRMED_COLLISION" if confirmation == "confirmed" else (
-        "CANDIDATE_UNCONFIRMED" if confirmation == "candidate" else "UNKNOWN"
+        "CANDIDATE_UNCONFIRMED" if confirmation.startswith("candidate") else "UNKNOWN"
     )
     return HistoricalValidationEvent(
         event_id=str(row["event_id"]),
@@ -459,7 +459,7 @@ def render_historical_tab():
     ground_truth_label = str(row.get("confirmation", "confirmed")).strip().upper()
     if ground_truth_label == "CONFIRMED":
         st.success("Historical ground truth: CONFIRMED COLLISION. This is the recorded outcome, not a prediction made by ORION-X.")
-    elif ground_truth_label == "CANDIDATE":
+    elif ground_truth_label.startswith("CANDIDATE"):
         st.warning("Historical ground truth: UNCONFIRMED CANDIDATE. Do not count this event as a proven collision.")
     else:
         st.info("Historical outcome is not confirmed in the event catalog.")
@@ -514,7 +514,7 @@ def render_historical_tab():
                     str(row["event_time_utc"]),
                     int(row["object_a_norad"]),
                     int(row["object_b_norad"]),
-                    ("CONFIRMED_COLLISION" if str(row.get("confirmation", "confirmed")).strip().lower() == "confirmed" else "CANDIDATE_UNCONFIRMED" if str(row.get("confirmation", "")).strip().lower() == "candidate" else "UNKNOWN"),
+                    ("CONFIRMED_COLLISION" if str(row.get("confirmation", "confirmed")).strip().lower() == "confirmed" else "CANDIDATE_UNCONFIRMED" if str(row.get("confirmation", "")).strip().lower().startswith("candidate") else "UNKNOWN"),
                     tuple(str(p) for p in archives),
                     int(rewind_days),
                     int(snapshot_step_hours),
