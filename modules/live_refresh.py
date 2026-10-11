@@ -1,7 +1,7 @@
 """Rebuild present-day ORION-X outputs from a bounded orbital catalog.
 
 Historical replay archives and fixed benchmark experiments are intentionally
-left untouched. Live propagation is capped at 120 objects to limit memory use.
+left untouched. Live propagation is capped at 150 objects to include the expanded orbital catalog.
 An explicitly uploaded CSV can opt into the CelesTrak replacement path.
 The saved catalog is not overwritten during the default refresh.
 """
@@ -98,8 +98,8 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
 
         # Keep the saved catalog and the live forecast workload aligned.
         # Prefer 35 objects from each debris family plus 15 non-debris objects;
-        # fill any unused slots from the remaining catalog, never above 120.
-        live_object_cap = 120
+        # fill any unused slots from the remaining catalog, never above 150.
+        live_object_cap = 150
         if len(catalog) > live_object_cap:
             names = catalog["OBJECT_NAME"].fillna("").astype(str).str.upper()
             selected_parts = []
@@ -150,7 +150,7 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
 
         _progress(
             progress_callback,
-            f"Using {len(catalog)} validated objects from data/orbital_data.csv (live cap: {live_object_cap}); no CelesTrak download required",
+            f"Using {len(catalog)} validated objects from data/orbital_data.csv (live forecast cap: {live_object_cap}); no CelesTrak download required",
         )
         extra = [column for column in catalog.columns if column not in required]
         return catalog[required + extra]
@@ -320,12 +320,12 @@ def fetch_current_curated_orbital_data(existing_df=None, progress_callback=None,
     # catalog; the smaller selection below is only for the expensive live forecast.
     all_fresh_debris = fresh.copy()
 
-    # Bound the expensive 30-day, 3-minute propagation to 120 objects.
-    # At 14,401 timestamps per object, this can create about 1.73M state rows.
+    # Bound the expensive 30-day, 3-minute propagation to 150 objects.
+    # At 14,401 timestamps per object, this can create about 2.16M state rows.
     # Keep the original time resolution while expanding the live object sample.
-    live_object_cap = 120
+    live_object_cap = 150
     debris_slots_per_family = 35
-    satellite_slots = 15
+    satellite_slots = 45
     selected_frames = []
     for group, _name_query in CELESTRAK_QUERIES:
         family = fresh[fresh["_SOURCE_GROUP"] == group].copy()
