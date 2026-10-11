@@ -101,12 +101,34 @@ def build_analytic_pc_results(conjunctions, orbital_data_df):
             log_pc = float(ncx2.logcdf(radius_term, df=2, nc=noncentrality) / np.log(10.0))
             pc_max = _pc_max_at_zero_miss(combined_sigma, hard_body_radius_km)
 
+            # Sensitivity-only scenarios show how Pc depends on the assumed
+            # uncertainty scale. They do not replace the baseline probability
+            # and are never used to assign the official collision-risk label.
+            pc_half_sigma = analytic_collision_probability(
+                miss,
+                sigma_a_km=sigma_a * 0.5,
+                sigma_b_km=sigma_b * 0.5,
+                hard_body_radius_km=hard_body_radius_km,
+            )
+            pc_double_sigma = analytic_collision_probability(
+                miss,
+                sigma_a_km=sigma_a * 2.0,
+                sigma_b_km=sigma_b * 2.0,
+                hard_body_radius_km=hard_body_radius_km,
+            )
+
             row["SIGMA_A_KM"] = sigma_a
             row["SIGMA_B_KM"] = sigma_b
             row["COMBINED_SIGMA_KM"] = combined_sigma
             row["ANALYTIC_PC"] = float(pc)
             row["LOG10_ANALYTIC_PC"] = log_pc
             row["ANALYTIC_PC_MAX_AT_ZERO_MISS"] = pc_max
+            row["PC_SENSITIVITY_HALF_SIGMA"] = float(pc_half_sigma)
+            row["PC_SENSITIVITY_DOUBLE_SIGMA"] = float(pc_double_sigma)
+            row["PC_SENSITIVITY_NOTE"] = (
+                "Illustrative sensitivity only; sigma scaled by 0.5x/2x, "
+                "not measured covariance and not used for classification"
+            )
             row["HIGH_PC_THRESHOLD"] = high_threshold
             row["HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA"] = bool(
                 np.isfinite(pc_max) and pc_max >= high_threshold
@@ -143,6 +165,9 @@ def build_analytic_pc_results(conjunctions, orbital_data_df):
             row["ANALYTIC_PC"] = np.nan
             row["LOG10_ANALYTIC_PC"] = np.nan
             row["ANALYTIC_PC_MAX_AT_ZERO_MISS"] = np.nan
+            row["PC_SENSITIVITY_HALF_SIGMA"] = np.nan
+            row["PC_SENSITIVITY_DOUBLE_SIGMA"] = np.nan
+            row["PC_SENSITIVITY_NOTE"] = "Unavailable"
             row["HIGH_PC_THRESHOLD"] = high_threshold
             row["HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA"] = False
             row["PROBABILITY_METHOD"] = "2D isotropic analytical encounter-plane model"
