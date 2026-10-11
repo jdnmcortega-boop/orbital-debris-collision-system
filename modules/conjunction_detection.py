@@ -36,6 +36,20 @@ def _hermite_position(r0, v0, r1, v1, duration_s, u):
     )
 
 
+def _hermite_velocity(r0, v0, r1, v1, duration_s, u):
+    """Time derivative of the same Hermite position polynomial (km/s)."""
+    u2 = u * u
+    dh00 = 6.0 * u2 - 6.0 * u
+    dh10 = 3.0 * u2 - 4.0 * u + 1.0
+    dh01 = -6.0 * u2 + 6.0 * u
+    dh11 = 3.0 * u2 - 2.0 * u
+    return (
+        (dh00 * r0 + dh01 * r1) / duration_s
+        + dh10 * v0
+        + dh11 * v1
+    )
+
+
 def _refine_pair_tca(frame_a, frame_b, sampled_time):
     """Refine a sampled minimum over its neighboring intervals.
 
@@ -94,8 +108,9 @@ def _refine_pair_tca(frame_a, frame_b, sampled_time):
         if best is None or d2_best < best[0]:
             tca = t0 + pd.to_timedelta(u_best * duration_s, unit="s")
             relative_position = _hermite_position(r0, v0, r1, v1, duration_s, u_best)
-            relative_velocity = (
-                (1.0 - u_best) * v0 + u_best * v1
+            # Use the derivative of the interpolated position at the refined TCA.
+            relative_velocity = _hermite_velocity(
+                r0, v0, r1, v1, duration_s, u_best
             )
             best = (
                 d2_best,
