@@ -276,10 +276,24 @@ def render_overview():
             )
 
     c4.metric("HIGH collision-probability events", high_pc_count)
+    unreachable_count = 0
+    if (
+        predictions is not None
+        and not predictions.empty
+        and "HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA" in predictions.columns
+    ):
+        reachable = predictions["HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA"].astype(str).str.lower()
+        unreachable_count = int(reachable.isin(["false", "0"]).sum())
     st.caption(
         f"ORION-X HIGH response-priority events: {high_priority_count}. "
         "Response priority is a separate ranking and must not be interpreted as collision probability."
     )
+    if unreachable_count:
+        st.warning(
+            f"{unreachable_count} conjunction(s) cannot reach the configured HIGH Pc threshold "
+            "even at zero miss distance under the current assumed uncertainty values. "
+            "Review the uncertainty assumptions and TLE freshness; do not inflate Pc to force a HIGH label."
+        )
 
     st.subheader("System architecture")
     st.markdown(
