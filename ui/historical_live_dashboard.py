@@ -737,10 +737,10 @@ def render_live_tab():
     st.divider()
     st.subheader("🛰️ CDM covariance import and validation")
     st.caption(
-        "Upload a flattened Space-Track/CCSDS CDM CSV to check whether its object pair "
-        "and TCA match the screened conjunctions, and whether both objects have usable "
-        "3×3 RTN position-covariance blocks. This is a validation/import step only: "
-        "these covariance blocks are not yet used to calculate Pc."
+        "Upload either the public Space-Track cdm_public CSV to compare its reported Pc "
+        "against ORION-X analytical results, or a flattened CCSDS CDM CSV to validate "
+        "the two objects' 3×3 RTN position-covariance blocks. This step does not replace "
+        "the live Pc model with CDM covariance."
     )
     cdm_upload = st.file_uploader(
         "Upload CDM CSV",
@@ -814,11 +814,22 @@ def render_live_tab():
                     )
             else:
                 st.info("Load or rebuild the conjunction file to match CDM rows against ORION-X events.")
-            st.warning(
-                "Do not interpret a valid RTN covariance block as a validated Pc yet. "
-                "The current probability pipeline still uses the explicitly labeled TLE-age-scaled model; "
-                "a full encounter-plane covariance transformation and independent verification are required before substitution."
-            )
+            if valid_both:
+                st.warning(
+                    "The covariance blocks are structurally validated, but are not yet used for Pc. "
+                    "A full encounter-plane covariance transformation and independent verification are required before substitution."
+                )
+            elif reported_pc_count:
+                st.info(
+                    "This file is useful for reference Pc validation, but it does not expose both objects' "
+                    "position-covariance blocks in the expected flattened columns. ORION-X continues to use "
+                    "its labeled TLE-age-scaled uncertainty model for its own Pc estimate."
+                )
+            else:
+                st.warning(
+                    "No usable pair of position-covariance blocks or reported Pc column was detected. "
+                    "Check the CSV schema before using it for validation."
+                )
         except Exception as exc:
             st.error(f"Could not parse or validate this CDM CSV: {exc}")
 
