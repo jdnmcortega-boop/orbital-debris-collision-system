@@ -52,7 +52,13 @@ def _covariance_column(columns, sat, key):
 def _object_id(row, columns, sat):
     candidates = [
         f"SAT{sat}_OBJECT_DESIGNATOR",
+        f"SAT_{sat}_OBJECT_DESIGNATOR",
         f"SAT{sat}_OBJECT",
+        f"SAT_{sat}_OBJECT",
+        f"SAT_{sat}_ID",
+        f"SAT{sat}_ID",
+        f"SAT_{sat}_NORAD_ID",
+        f"SAT{sat}_NORAD_CAT_ID",
         f"OBJECT{sat}_OBJECT_DESIGNATOR",
         f"OBJECT{sat}_NORAD_CAT_ID",
         f"SAT{sat}_NORAD_CAT_ID",
@@ -138,6 +144,10 @@ def validate_cdm_rows(cdm_frame):
         reports.append({
             "CDM_SOURCE_ROW": int(row.get("_CDM_SOURCE_ROW", len(reports) + 1)),
             "CDM_TCA": tca.isoformat() if pd.notna(tca) else None,
+            "CDM_REPORTED_PC": _number(row.get(_find_column(cdm_frame.columns, ["PC", "COLLISION_PROBABILITY"])))
+                if _find_column(cdm_frame.columns, ["PC", "COLLISION_PROBABILITY"]) else np.nan,
+            "CDM_MIN_RANGE": _number(row.get(_find_column(cdm_frame.columns, ["MIN_RNG", "MIN_RANGE", "MISS_DISTANCE"])))
+                if _find_column(cdm_frame.columns, ["MIN_RNG", "MIN_RANGE", "MISS_DISTANCE"]) else np.nan,
             "CDM_OBJECT1_ID": row.get("_CDM_OBJECT1"),
             "CDM_OBJECT2_ID": row.get("_CDM_OBJECT2"),
             "OBJECT1_COVARIANCE_STATUS": status_a,
@@ -181,6 +191,9 @@ def match_cdms_to_conjunctions(cdm_frame, conjunctions, tolerance_minutes=DEFAUL
 
     events = conjunctions.copy()
     events["_EVENT_TCA"] = pd.to_datetime(events["TCA"], utc=True, errors="coerce")
+    event_pc_col = _find_column(events.columns, ["ANALYTIC_PC", "PC", "COLLISION_PROBABILITY"])
+    event_pc_max_col = _find_column(events.columns, ["ANALYTIC_PC_MAX_AT_ZERO_MISS"])
+    event_miss_col = _find_column(events.columns, ["MISS_DISTANCE_KM", "MIN_RNG", "MIN_RANGE"])
     events["_PAIR"] = events.apply(
         lambda r: tuple(sorted([str(int(r["NORAD_A"])), str(int(r["NORAD_B"]))])),
         axis=1,
@@ -196,6 +209,10 @@ def match_cdms_to_conjunctions(cdm_frame, conjunctions, tolerance_minutes=DEFAUL
                 "EVENT_TCA": event["TCA"], "CDM_MATCH_STATUS": "NO_OBJECT_PAIR_MATCH",
                 "CDM_TCA": None, "CDM_SOURCE_ROW": None,
                 "COVARIANCE_VALIDATION_STATUS": "NOT_AVAILABLE",
+                "CDM_REPORTED_PC": np.nan,
+                "ORION_ANALYTIC_PC": _number(event.get(event_pc_col)) if event_pc_col else np.nan,
+                "PC_ABSOLUTE_DIFFERENCE": np.nan,
+                "ORION_MISS_DISTANCE_KM": _number(event.get(event_miss_col)) if event_miss_col else np.nan,
             })
             continue
         candidates["_TCA_DELTA_SECONDS"] = (
@@ -213,5 +230,14 @@ def match_cdms_to_conjunctions(cdm_frame, conjunctions, tolerance_minutes=DEFAUL
             "COVARIANCE_VALIDATION_STATUS": best["COVARIANCE_VALIDATION_STATUS"],
             "OBJECT1_COVARIANCE_STATUS": best["OBJECT1_COVARIANCE_STATUS"],
             "OBJECT2_COVARIANCE_STATUS": best["OBJECT2_COVARIANCE_STATUS"],
+            "CDM_REPORTED_PC": _number(best.get("CDM_REPORTED_PC")),
+            "ORION_ANALYTIC_PC": _number(event.get(event_pc_col)) if event_pc_col else np.nan,
+            "PC_ABSOLUTE_DIFFERENCE": (
+                abs(_number(best.get("CDM_REPORTED_PC")) - _number(event.get(event_pc_col)))
+                if event_pc_col and np.isfinite(_number(best.get("CDM_REPORTED_PC")))
+                and np.isfinite(_number(event.get(event_pc_col))) else np.nan
+            ),
+            "CDM_MIN_RANGE": _number(best.get("CDM_MIN_RANGE")),
+            "ORION_MISS_DISTANCE_KM": _number(event.get(event_miss_col)) if event_miss_col else np.nan,
         })
     return pd.DataFrame(matches)
