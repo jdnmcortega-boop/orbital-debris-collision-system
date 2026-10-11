@@ -750,17 +750,21 @@ def render_live_tab():
     )
     if cdm_upload is not None:
         try:
-            from modules.cdm_covariance import load_cdm_csv, validate_cdm_rows, match_cdms_to_conjunctions
+            from modules.cdm_covariance import (
+                load_cdm_csv, validate_cdm_rows, match_cdms_to_conjunctions,
+                has_position_covariance_fields,
+            )
 
             cdm_frame = load_cdm_csv(cdm_upload)
             cdm_validation = validate_cdm_rows(cdm_frame)
             valid_both = int((cdm_validation["COVARIANCE_VALIDATION_STATUS"] == "BOTH_POSITION_BLOCKS_VALID").sum())
             reported_pc_count = int(pd.to_numeric(cdm_validation.get("CDM_REPORTED_PC"), errors="coerce").notna().sum()) if "CDM_REPORTED_PC" in cdm_validation.columns else 0
+            covariance_fields_present = has_position_covariance_fields(cdm_frame.columns)
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("CDM records", int(len(cdm_frame)))
             c2.metric("Records with reported Pc", reported_pc_count)
             c3.metric("Both position blocks valid", valid_both)
-            c4.metric("No valid position blocks", int((cdm_validation["COVARIANCE_VALIDATION_STATUS"] == "NO_VALID_POSITION_COVARIANCE").sum()))
+            c4.metric("Covariance fields in file", "Yes" if covariance_fields_present else "No")
             if reported_pc_count:
                 st.info(
                     "This public CDM CSV contains reported collision probabilities and can be used as a reference dataset. "
@@ -819,16 +823,22 @@ def render_live_tab():
                     "The covariance blocks are structurally validated, but are not yet used for Pc. "
                     "A full encounter-plane covariance transformation and independent verification are required before substitution."
                 )
-            elif reported_pc_count:
+            elif not covariance_fields_present and reported_pc_count:
                 st.info(
-                    "This file is useful for reference Pc validation, but it does not expose both objects' "
-                    "position-covariance blocks in the expected flattened columns. ORION-X continues to use "
-                    "its labeled TLE-age-scaled uncertainty model for its own Pc estimate."
+                    "Detected a reported-Pc reference export: this CSV contains conjunction metadata and Pc, "
+                    "but no flattened RTN position-covariance fields. Those records are valid for Pc comparison; "
+                    "they are not malformed covariance records. ORION-X continues to use its labeled "
+                    "TLE-age-scaled uncertainty model for its own Pc estimate."
+                )
+            elif not covariance_fields_present:
+                st.warning(
+                    "No expected flattened RTN position-covariance fields were found. "
+                    "The file may still be useful as a metadata/reference export if it contains reported Pc."
                 )
             else:
                 st.warning(
-                    "No usable pair of position-covariance blocks or reported Pc column was detected. "
-                    "Check the CSV schema before using it for validation."
+                    "Covariance fields were detected, but no row contains two valid position-covariance blocks. "
+                    "Review the per-object validation statuses and verify the source units and format."
                 )
         except Exception as exc:
             st.error(f"Could not parse or validate this CDM CSV: {exc}")
