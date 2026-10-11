@@ -686,11 +686,29 @@ def render_live_tab():
             reachable = predictions["HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA"].astype(str).str.lower()
             unreachable = int(reachable.isin(["false", "0"]).sum())
             if unreachable:
+                from modules import uncertainty_model as uncertainty_settings
                 st.warning(
-                    f"{unreachable} event(s) cannot reach the configured HIGH Pc threshold "
-                    "even at zero miss distance under the current assumed uncertainty model. "
-                    "Sensitivity columns are illustrative only and do not alter the official Pc label."
+                    f"{unreachable} event(s) have a modeled maximum Pc below the configured HIGH threshold, "
+                    "even in the mathematical zero-miss scenario under the current assumed uncertainty. "
+                    "This is a model diagnostic—not proof that the events are safe. The current uncertainty "
+                    "values are assumptions, not object-specific covariance or validated empirical estimates. "
+                    "Sensitivity columns are illustrative only and do not change the official Pc label."
                 )
+                with st.expander("Uncertainty-model assumptions and calibration"):
+                    st.write(
+                        f"Base 1-sigma assumption: {uncertainty_settings.SIGMA_BASE_KM:.3f} km per object"
+                    )
+                    st.write(
+                        f"Assumed growth: {uncertainty_settings.GROWTH_RATE_KM_PER_DAY:.3f} km/day"
+                    )
+                    st.write(f"Model: {uncertainty_settings.UNCERTAINTY_MODEL_NAME}")
+                    st.write(f"Validated from historical residuals: {'Yes' if uncertainty_settings.UNCERTAINTY_MODEL_VALIDATED else 'No'}")
+                    st.caption(
+                        "To configure a sensitivity scenario, set ORION_SIGMA_BASE_KM and "
+                        "ORION_SIGMA_GROWTH_KM_PER_DAY in the deployment environment, then rebuild "
+                        "the live pipeline. Changing these values is not calibration: calibrate them "
+                        "against archived, time-separated orbital solutions or use validated covariance."
+                    )
 
         st.subheader("All forecast events")
         all_cols = [
