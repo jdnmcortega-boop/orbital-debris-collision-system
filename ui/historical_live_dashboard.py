@@ -746,7 +746,7 @@ def render_live_tab():
         "Upload CDM CSV",
         type=["csv"],
         key="orion_cdm_covariance_upload",
-        help="Use a flattened CDM CSV with TCA, object designators/IDs, and SAT1_/SAT2_ covariance fields such as CR_R, CT_R, CT_T, CN_R, CN_T, CN_N.",
+        help="Accepts public Space-Track cdm_public CSV (SAT_1_ID, SAT_2_ID, TCA, PC, MIN_RNG) for reference comparison, or a flattened CCSDS CDM CSV with object IDs and covariance fields for covariance validation.",
     )
     if cdm_upload is not None:
         try:
@@ -755,20 +755,59 @@ def render_live_tab():
             cdm_frame = load_cdm_csv(cdm_upload)
             cdm_validation = validate_cdm_rows(cdm_frame)
             valid_both = int((cdm_validation["COVARIANCE_VALIDATION_STATUS"] == "BOTH_POSITION_BLOCKS_VALID").sum())
-            c1, c2, c3 = st.columns(3)
+            reported_pc_count = int(pd.to_numeric(cdm_validation.get("CDM_REPORTED_PC"), errors="coerce").notna().sum()) if "CDM_REPORTED_PC" in cdm_validation.columns else 0
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("CDM records", int(len(cdm_frame)))
-            c2.metric("Both position blocks valid", valid_both)
-            c3.metric("No valid position blocks", int((cdm_validation["COVARIANCE_VALIDATION_STATUS"] == "NO_VALID_POSITION_COVARIANCE").sum()))
-            st.subheader("CDM covariance checks")
-            st.dataframe(cdm_validation, width="stretch")
-            if conjunctions is not None and not conjunctions.empty:
-                matches = match_cdms_to_conjunctions(cdm_frame, conjunctions)
+            c2.metric("Records with reported Pc", reported_pc_count)
+            c3.metric("Both position blocks valid", valid_both)
+            c4.metric("No valid position blocks", int((cdm_validation["COVARIANCE_VALIDATION_STATUS"] == "NO_VALID_POSITION_COVARIANCE").sum()))
+            if reported_pc_count:
+                st.info(
+                    "This public CDM CSV contains reported collision probabilities and can be used as a reference dataset. "
+                    "It does not necessarily include covariance matrices, so the reported Pc is not a substitute for covariance-based recalculation."
+                )
+            st.subheader("CDM field validation")
+            validation_cols = [
+                "CDM_SOURCE_ROW", "CDM_TCA", "CDM_OBJECT1_ID", "CDM_OBJECT2_ID",
+                "CDM_REPORTED_PC", "CDM_MIN_RANGE", "OBJECT1_COVARIANCE_STATUS",
+                "OBJECT2_COVARIANCE_STATUS", "COVARIANCE_VALIDATION_STATUS", "NOTE",
+            ]
+            validation_cols = [column for column in validation_cols if column in cdm_validation.columns]
+            st.dataframe(cdm_validation[validation_cols], width="stretch", hide_index=True)
+            match_source = None
+            analytic_path_for_cdm = PROJECT_ROOT / "results" / "analytic_pc_results.csv"
+            analytic_for_cdm = load_csv(str(analytic_path_for_cdm))
+            required_match_cols = {"NORAD_A", "NORAD_B", "TCA"}
+            if analytic_for_cdm is not None and required_match_cols.issubset(analytic_for_cdm.columns):
+                match_source = analytic_for_cdm
+                match_source_label = "analytical Pc results"
+            elif conjunctions is not None and not conjunctions.empty:
+                match_source = conjunctions
+                match_source_label = "screened conjunctions"
+            if match_source is not None and not match_source.empty:
+                matches = match_cdms_to_conjunctions(cdm_frame, match_source)
                 if not matches.empty:
                     matched = matches["CDM_MATCH_STATUS"].eq("MATCHED_WITHIN_TOLERANCE")
-                    st.metric("Conjunctions matched to CDM within 10 minutes", int(matched.sum()))
-                    st.dataframe(matches, width="stretch")
+                    pc_comparable = pd.to_numeric(matches.get("PC_ABSOLUTE_DIFFERENCE"), errors="coerce").notna()
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Events matched within 10 minutes", int(matched.sum()))
+                    m2.metric("Matched records with Pc comparison", int((matched & pc_comparable).sum()))
+                    m3.metric("CDM records with reported Pc", reported_pc_count)
+                    st.caption(
+                        f"Matching source: {match_source_label}. Pc differences are shown only when both the CDM reference Pc "
+                        "and ORION-X analytical Pc are present. They are comparisons, not recalibrations."
+                    )
+                    match_cols = [
+                        "NORAD_A", "NORAD_B", "EVENT_TCA", "CDM_TCA",
+                        "CDM_TCA_DELTA_MINUTES", "CDM_MATCH_STATUS",
+                        "CDM_REPORTED_PC", "ORION_ANALYTIC_PC", "PC_ABSOLUTE_DIFFERENCE",
+                        "CDM_MIN_RANGE", "ORION_MISS_DISTANCE_KM",
+                        "COVARIANCE_VALIDATION_STATUS",
+                    ]
+                    match_cols = [column for column in match_cols if column in matches.columns]
+                    st.dataframe(matches[match_cols], width="stretch", hide_index=True)
                     st.download_button(
-                        "Download CDM matching report",
+                        "Download CDM matching and Pc comparison report",
                         data=matches.to_csv(index=False).encode("utf-8"),
                         file_name="orion_x_cdm_match_report.csv",
                         mime="text/csv",
