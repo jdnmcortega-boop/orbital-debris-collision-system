@@ -276,134 +276,33 @@ def composite_risk_score(
     altitude_difference_km,
     inclination_difference_deg,
 ):
+    """Score conjunction response priority, not collision probability.
+
+    Probability is accepted for backward compatibility but deliberately does
+    not enter this score. Collision probability and response priority are
+    separate outputs: the former is Pc-only; the latter ranks close geometry,
+    relative speed, and uncertainty for operator review.
     """
-    Calculate a composite conjunction-priority score.
-
-    The score combines:
-
-        1. Monte Carlo collision probability
-        2. Miss distance
-        3. Orbital geometry
-        4. Relative velocity
-        5. Positional uncertainty
-
-    IMPORTANT:
-
-    This score is a PRIORITIZATION / RANKING SCORE.
-
-    It is NOT collision probability.
-
-    Physical conjunction geometry is deliberately given more
-    importance than uncertainty so that a very uncertain object
-    that is hundreds of kilometers away is not incorrectly
-    classified as a medium-risk conjunction.
-    """
-
-    probability = max(
-        float(probability),
-        0.0
-    )
-
-    # ========================================================
-    # 1. COLLISION PROBABILITY
-    # ========================================================
-
-    if RISK_THRESHOLD_HIGH > 0:
-
-        probability_factor = min(
-            probability /
-            RISK_THRESHOLD_HIGH,
-            1.0
-        )
-
-    else:
-
-        probability_factor = 0.0
-
-    # ========================================================
-    # 2. MISS DISTANCE
-    # ========================================================
-
-    dist_factor = distance_factor(
-        miss_distance_km
-    )
-
-    # ========================================================
-    # 3. ORBITAL GEOMETRY
-    # ========================================================
-
+    dist_factor = distance_factor(miss_distance_km)
     geometry_factor = orbital_geometry_factor(
         miss_distance_km,
         altitude_difference_km,
         inclination_difference_deg,
     )
-
-    # ========================================================
-    # 4. RELATIVE VELOCITY
-    # ========================================================
-
-    velocity_raw = severity_factor(
-        relative_velocity_km_s
-    )
-
-    # Cap the velocity contribution so extremely high
-    # relative velocities cannot dominate the score.
-
-    velocity_factor = min(
-        velocity_raw / 2.0,
-        1.0
-    )
-
-    # ========================================================
-    # 5. POSITIONAL UNCERTAINTY
-    # ========================================================
-
+    velocity_raw = severity_factor(relative_velocity_km_s)
+    velocity_factor = float(np.clip(velocity_raw / 2.0, 0.0, 1.0))
     uncertainty = uncertainty_factor(
         miss_distance_km,
         sigma_a_km,
         sigma_b_km,
     )
-
-    # ========================================================
-    # 6. FINAL SCORE
-    # ========================================================
-    #
-    # Physical geometry receives the greatest influence.
-    #
-    # Probability:
-    #     30%
-    #
-    # Miss distance:
-    #     30%
-    #
-    # Orbital geometry:
-    #     20%
-    #
-    # Relative velocity:
-    #     15%
-    #
-    # Uncertainty:
-    #      5%
-    #
-    # This prevents large uncertainty values from artificially
-    # producing MEDIUM risk for distant conjunctions.
-    #
-
     score = (
-        0.30 * probability_factor
-        + 0.30 * dist_factor
-        + 0.20 * geometry_factor
-        + 0.15 * velocity_factor
-        + 0.05 * uncertainty
+        0.40 * dist_factor
+        + 0.30 * geometry_factor
+        + 0.20 * velocity_factor
+        + 0.10 * uncertainty
     )
-
-    return float(
-        np.clip(
-            score,
-            0.0,
-            1.0
-        )
-    )
+    return float(np.clip(score, 0.0, 1.0))
 
 
 # ============================================================
@@ -596,7 +495,7 @@ def lookup_operator(object_name):
 # ============================================================
 
 def build_predictions(results_df):
-    """Build risk rankings from analytical Pc (preferred) or MC fallback."""
+    """Build separate probability-based collision risk and response priority."""
     df = results_df.copy()
     probability_column = (
         "ANALYTIC_PC" if "ANALYTIC_PC" in df.columns
@@ -616,12 +515,15 @@ def build_predictions(results_df):
 
     df[probability_column] = pd.to_numeric(df[probability_column], errors="coerce")
     df["PROBABILITY_SOURCE"] = (
-        "Analytical Pc (modeled uncertainty)" if probability_column == "ANALYTIC_PC"
+        "Analytical Pc (assumed uncertainty model)" if probability_column == "ANALYTIC_PC"
         else "Monte Carlo validation estimate"
     )
-    df["RISK_LEVEL"] = df[probability_column].apply(
-        lambda p: classify_risk(p) if pd.notna(p) else "UNAVAILABLE"
+    df["COLLISION_RISK_LEVEL"] = df[probability_column].apply(
+        lambda p: classify_risk(p) if pd.notna(p) and np.isfinite(float(p)) else "UNAVAILABLE"
     )
+    # Backward-compatible alias. This field always means Pc-threshold risk.
+    df["RISK_LEVEL"] = df["COLLISION_RISK_LEVEL"]
+
     df["ORBITAL_GEOMETRY_FACTOR"] = df.apply(
         lambda r: orbital_geometry_factor(
             r["MISS_DISTANCE_KM"], r["ALTITUDE_DIFFERENCE_KM"],
@@ -634,7 +536,7 @@ def build_predictions(results_df):
 
     def score_row(r):
         needed = [
-            probability_column, "RELATIVE_VELOCITY_KM_S", "MISS_DISTANCE_KM",
+            "RELATIVE_VELOCITY_KM_S", "MISS_DISTANCE_KM",
             "SIGMA_A_KM", "SIGMA_B_KM", "ALTITUDE_DIFFERENCE_KM",
             "INCLINATION_DIFFERENCE_DEG",
         ]
@@ -650,13 +552,21 @@ def build_predictions(results_df):
             inclination_difference_deg=r["INCLINATION_DIFFERENCE_DEG"],
         )
 
-    df["COMPOSITE_RISK_SCORE"] = df.apply(score_row, axis=1)
-    df["COMPOSITE_RISK_LEVEL"] = df.apply(
+    df["ORION_X_PRIORITY_SCORE"] = df.apply(score_row, axis=1)
+    df["ORION_X_PRIORITY_LEVEL"] = df.apply(
         lambda r: classify_composite_risk(
-            r["COMPOSITE_RISK_SCORE"], r["MISS_DISTANCE_KM"],
+            r["ORION_X_PRIORITY_SCORE"], r["MISS_DISTANCE_KM"],
             r["ALTITUDE_DIFFERENCE_KM"],
-        ) if pd.notna(r["COMPOSITE_RISK_SCORE"]) else "UNAVAILABLE",
+        ) if pd.notna(r["ORION_X_PRIORITY_SCORE"]) else "UNAVAILABLE",
         axis=1,
+    )
+    # Compatibility aliases for existing UI/warning code. These now refer to
+    # response priority, not collision probability; the explicit Pc label above
+    # remains the only collision-risk classification.
+    df["COMPOSITE_RISK_SCORE"] = df["ORION_X_PRIORITY_SCORE"]
+    df["COMPOSITE_RISK_LEVEL"] = df["ORION_X_PRIORITY_LEVEL"]
+    df["PRIORITY_BASIS"] = (
+        "Miss distance, orbital geometry, relative velocity, and assumed uncertainty; not Pc"
     )
 
     for suffix in ("A", "B"):
@@ -670,7 +580,10 @@ def build_predictions(results_df):
         df["OPERATOR_" + suffix] = operators
 
     return df.sort_values(
-        "COMPOSITE_RISK_SCORE", ascending=False, na_position="last"
+        ["ORION_X_PRIORITY_SCORE", "ANALYTIC_PC"] if "ANALYTIC_PC" in df.columns
+        else ["ORION_X_PRIORITY_SCORE"],
+        ascending=False,
+        na_position="last",
     ).reset_index(drop=True)
 
 
@@ -679,27 +592,30 @@ def build_predictions(results_df):
 # ============================================================
 
 def format_warning_message(row):
-    """Generate a simulated warning without assuming MC fields exist."""
+    """Generate a warning that keeps Pc risk separate from response priority."""
     probability = row.get("ANALYTIC_PC", row.get("COLLISION_PROBABILITY_MC", np.nan))
     probability_source = row.get("PROBABILITY_SOURCE", "modeled probability")
     mc_upper = row.get("MC_UPPER_95_PROBABILITY", np.nan)
     return (
-        "=== COLLISION WARNING ===\n"
+        "=== ORION-X CONJUNCTION REVIEW ===\n"
         f"Object 1: {row.get('OBJECT_A', 'Unknown')} (NORAD {row.get('NORAD_A', 'N/A')}) - "
         f"{row.get('OPERATOR_A', 'Unknown')} ({row.get('COUNTRY_A', 'Unknown')})\n"
         f"Object 2: {row.get('OBJECT_B', 'Unknown')} (NORAD {row.get('NORAD_B', 'N/A')}) - "
         f"{row.get('OPERATOR_B', 'Unknown')} ({row.get('COUNTRY_B', 'Unknown')})\n"
-        f"Predicted TCA: {row.get('TCA', 'N/A')}\n"
-        f"Miss distance: {float(row.get('MISS_DISTANCE_KM', np.nan)):.3f} km\n"
+        f"Refined TCA: {row.get('TCA', 'N/A')}\n"
+        f"Refinement method: {row.get('TCA_REFINEMENT_METHOD', 'not recorded')}\n"
+        f"Refined miss distance: {float(row.get('MISS_DISTANCE_KM', np.nan)):.6f} km\n"
+        f"Sampled miss distance: {float(row.get('SAMPLED_MISS_DISTANCE_KM', np.nan)):.6f} km\n"
         f"Altitude difference (semimajor-axis proxy): {float(row.get('ALTITUDE_DIFFERENCE_KM', np.nan)):.3f} km\n"
         f"Inclination difference: {float(row.get('INCLINATION_DIFFERENCE_DEG', np.nan)):.3f} deg\n"
         f"Relative velocity: {float(row.get('RELATIVE_VELOCITY_KM_S', np.nan)):.3f} km/s\n"
         f"Collision probability ({probability_source}): {float(probability):.6e}\n"
+        f"Collision risk (Pc threshold): {row.get('COLLISION_RISK_LEVEL', row.get('RISK_LEVEL', 'UNAVAILABLE'))}\n"
+        f"ORION-X response priority score: {float(row.get('ORION_X_PRIORITY_SCORE', row.get('COMPOSITE_RISK_SCORE', np.nan))):.4f}\n"
+        f"ORION-X response priority: {row.get('ORION_X_PRIORITY_LEVEL', row.get('COMPOSITE_RISK_LEVEL', 'UNAVAILABLE'))}\n"
         f"Monte Carlo 95% upper probability (if available): {float(mc_upper):.6e}\n"
-        f"Orbital geometry factor: {float(row.get('ORBITAL_GEOMETRY_FACTOR', np.nan)):.4f}\n"
-        f"Composite risk score: {float(row.get('COMPOSITE_RISK_SCORE', np.nan)):.4f}\n"
-        f"Risk level: {row.get('COMPOSITE_RISK_LEVEL', 'UNAVAILABLE')}\n"
-        "=========================\n"
+        "Priority is not a collision probability and does not establish that a collision will occur.\n"
+        "=================================\n"
     )
 
 
