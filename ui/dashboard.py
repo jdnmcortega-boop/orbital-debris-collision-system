@@ -255,15 +255,31 @@ def render_overview():
     c2.metric("Screened conjunctions", int(len(conjunctions)) if conjunctions is not None else 0)
     c3.metric("30-day forecast rows", int(len(predictions)) if predictions is not None else 0)
 
-    risk_count = 0
+    high_pc_count = 0
+    high_priority_count = 0
     if predictions is not None and not predictions.empty:
-        risk_col = next(
-            (c for c in ["COMPOSITE_RISK_LEVEL", "RISK_LEVEL", "ANALYTIC_RISK_LEVEL"] if c in predictions.columns),
-            None,
-        )
-        if risk_col:
-            risk_count = int(predictions[risk_col].astype(str).str.upper().isin(["HIGH", "CRITICAL"]).sum())
-    c4.metric("HIGH / CRITICAL forecast", risk_count)
+        # Collision-risk count is based only on the Pc threshold.
+        if "COLLISION_RISK_LEVEL" in predictions.columns:
+            high_pc_count = int(
+                predictions["COLLISION_RISK_LEVEL"].astype(str).str.upper().eq("HIGH").sum()
+            )
+        elif "RISK_LEVEL" in predictions.columns:
+            high_pc_count = int(
+                predictions["RISK_LEVEL"].astype(str).str.upper().eq("HIGH").sum()
+            )
+
+        # Response priority is a separate geometry/severity ranking, not Pc.
+        priority_col = "ORION_X_PRIORITY_LEVEL" if "ORION_X_PRIORITY_LEVEL" in predictions.columns else "COMPOSITE_RISK_LEVEL" if "COMPOSITE_RISK_LEVEL" in predictions.columns else None
+        if priority_col:
+            high_priority_count = int(
+                predictions[priority_col].astype(str).str.upper().eq("HIGH").sum()
+            )
+
+    c4.metric("HIGH collision-probability events", high_pc_count)
+    st.caption(
+        f"ORION-X HIGH response-priority events: {high_priority_count}. "
+        "Response priority is a separate ranking and must not be interpreted as collision probability."
+    )
 
     st.subheader("System architecture")
     st.markdown(
