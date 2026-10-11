@@ -313,10 +313,13 @@ def run_historical_validation(
 
     output = pd.DataFrame(rows)
 
-    high_alert = output[output["FORECAST_PROXIMITY_ALERT_LEVEL"] == "HIGH"]
-    medium_alert = output[output["FORECAST_PROXIMITY_ALERT_LEVEL"] == "MEDIUM"]
-    high_probability = output[output["ANALYTIC_RISK_LEVEL"] == "HIGH"]
-    medium_probability = output[output["ANALYTIC_RISK_LEVEL"] == "MEDIUM"]
+    # Warning lead times must be measured strictly before the event. The T-0
+    # boundary is ground truth/evaluation, not a pre-event prediction.
+    pre_event_output = output[output["PREDICTION_TIME_IS_PRE_EVENT"]]
+    high_alert = pre_event_output[pre_event_output["FORECAST_PROXIMITY_ALERT_LEVEL"] == "HIGH"]
+    medium_alert = pre_event_output[pre_event_output["FORECAST_PROXIMITY_ALERT_LEVEL"] == "MEDIUM"]
+    high_probability = pre_event_output[pre_event_output["ANALYTIC_RISK_LEVEL"] == "HIGH"]
+    medium_probability = pre_event_output[pre_event_output["ANALYTIC_RISK_LEVEL"] == "MEDIUM"]
 
     output.attrs["first_high_forecast_alert_days"] = (
         float(high_alert["DAYS_BEFORE_EVENT"].max()) if not high_alert.empty else None
