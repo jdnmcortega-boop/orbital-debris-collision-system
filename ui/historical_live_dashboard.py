@@ -279,14 +279,10 @@ def conjunction_signature_figure(frame: pd.DataFrame):
     plot["_PC_ORDER"] = -plot["_PC_LOG10"].apply(lambda value: __import__("math").log10(value))
     plot["_BUBBLE_SIZE"] = plot["_PC_ORDER"].clip(lower=1, upper=300).apply(lambda value: 7 + min(value, 300) / 18)
 
-    hover_cols = [c for c in ["OBJECT_A", "OBJECT_B", "TCA", "PROBABILITY_STATUS", "ORION_X_PRIORITY_LEVEL"] if c in plot.columns]
-    custom = plot[hover_cols].astype(str).values if hover_cols else None
-    hovertemplate = (
-        "Miss distance: %{x:.6g} km<br>Relative velocity: %{y:.6g} km/s"
-        "<br>Analytical Pc: %{marker.color:.3e}<extra></extra>"
-    )
-    # Color is log10(Pc), so retain actual Pc as color data for readable hover text.
-    plot["_PC_COLOR"] = plot["ANALYTIC_PC"].clip(lower=pc_floor)
+    # Color by probability order of magnitude rather than raw tiny Pc values,
+    # which would otherwise collapse to nearly one color on a linear color scale.
+    plot["_PC_COLOR"] = plot["_PC_ORDER"]
+    custom = plot[["ANALYTIC_PC"]].to_numpy()
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=plot["MISS_DISTANCE_KM"],
@@ -298,20 +294,18 @@ def conjunction_signature_figure(frame: pd.DataFrame):
             size=plot["_BUBBLE_SIZE"],
             color=plot["_PC_COLOR"],
             colorscale="Turbo",
-            cmin=pc_floor,
-            colorbar=dict(title="Analytical Pc", tickformat=".0e"),
+            colorbar=dict(title="−log10(Pc)"),
             showscale=True,
             opacity=0.82,
             line=dict(width=0.6, color="#e2e8f0"),
         ),
         hovertemplate=(
             "Miss distance: %{x:.6g} km<br>Relative velocity: %{y:.6g} km/s"
-            "<br>Analytical Pc: %{marker.color:.3e}<extra></extra>"
+            "<br>Analytical Pc: %{customdata[0]:.3e}<extra></extra>"
         ),
     ))
     fig.update_layout(
         title="Conjunction Signature Map",
-        subtitle="",
         height=520,
         margin=dict(l=55, r=45, t=65, b=55),
         template="plotly_dark",
