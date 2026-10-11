@@ -137,7 +137,13 @@ def find_conjunctions(propagated_df, screening_distance_km=None):
             f"Propagated data is missing required columns: {sorted(missing)}"
         )
 
-    df = propagated_df.copy()
+    # Keep only fields needed for screening/refinement to limit peak memory
+    # on the hosted app's 150-object, 30-day propagation grid.
+    needed_columns = [
+        "NORAD_CAT_ID", "OBJECT_NAME", "TIME",
+        *_POSITION_COLUMNS, *_VELOCITY_COLUMNS,
+    ]
+    df = propagated_df[needed_columns].copy()
     df["TIME"] = pd.to_datetime(df["TIME"], utc=True, errors="coerce")
     for column in _POSITION_COLUMNS + _VELOCITY_COLUMNS:
         df[column] = pd.to_numeric(df[column], errors="coerce")
@@ -155,14 +161,13 @@ def find_conjunctions(propagated_df, screening_distance_km=None):
         for object_id, part in df.groupby("NORAD_CAT_ID", sort=False)
     }
     forecast_start = df["TIME"].min()
-    time_groups = list(df.groupby("TIME", sort=True))
-    if len(time_groups) < 2:
+    unique_times = pd.DatetimeIndex(
+        df["TIME"].drop_duplicates().sort_values()
+    )
+    if len(unique_times) < 2:
         return pd.DataFrame(columns=columns)
 
-    intervals = [
-        (time_groups[i + 1][0] - time_groups[i][0]).total_seconds()
-        for i in range(len(time_groups) - 1)
-    ]
+    intervals = np.diff(unique_times.asi8) / 1e9
     positive_intervals = [value for value in intervals if value > 0]
     if not positive_intervals:
         return pd.DataFrame(columns=columns)
@@ -185,7 +190,7 @@ def find_conjunctions(propagated_df, screening_distance_km=None):
     # Keep the best sampled state for each candidate pair. The expanded radius
     # is only a broad-phase filter; it does not itself create a conjunction.
     best_by_pair = {}
-    for timestamp, frame in time_groups:
+    for timestamp, frame in df.groupby("TIME", sort=True):
         if len(frame) < 2:
             continue
         frame = frame.drop_duplicates("NORAD_CAT_ID", keep="last")
