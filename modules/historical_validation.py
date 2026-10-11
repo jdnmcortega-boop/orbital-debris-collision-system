@@ -29,6 +29,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import config
+
 from .historical_replay import (
     merge_tle_archives,
     propagate_satellite,
