@@ -297,8 +297,7 @@ def conjunction_signature_figure(frame: pd.DataFrame):
         mode="markers",
         name="Conjunctions",
         customdata=custom,
-        marker=dict(
-            size=plot["_BUBBLE_SIZE"],
+        marker=dict(            size=plot["_BUBBLE_SIZE"],
             color=plot["_PC_COLOR"],
             colorscale="Turbo",
             colorbar=dict(title="−log10(Pc)"),
@@ -598,7 +597,6 @@ def render_historical_tab():
                 f"{float(selected_row['FORECAST_MISS_DISTANCE_KM']):.6f} km",
             )
         st.caption("Geometric screening: forecast closest-approach distance.")
-
     with channel_b:
         st.markdown("### 🎯 Collision probability")
         st.metric(
@@ -789,6 +787,70 @@ def render_live_tab():
                 match_source = conjunctions
                 match_source_label = "screened conjunctions"
             if match_source is not None and not match_source.empty:
+                # Diagnose why zero strict matches occur before comparing Pc.
+                # Pair overlap ignores object order; TCA tolerance remains unchanged.
+                cdm_tcas = pd.to_datetime(cdm_frame.get("_CDM_TCA"), utc=True, errors="coerce").dropna()
+                orion_tcas = pd.to_datetime(match_source.get("TCA"), utc=True, errors="coerce").dropna()
+                cdm_date_range = (
+                    f"{cdm_tcas.min():%Y-%m-%d} to {cdm_tcas.max():%Y-%m-%d}"
+                    if not cdm_tcas.empty else "Unavailable"
+                )
+                orion_date_range = (
+                    f"{orion_tcas.min():%Y-%m-%d} to {orion_tcas.max():%Y-%m-%d}"
+                    if not orion_tcas.empty else "Unavailable"
+                )
+
+                def _diagnostic_id(value):
+                    if value is None or pd.isna(value):
+                        return ""
+                    text_value = str(value).strip()
+                    try:
+                        numeric = float(text_value)
+                        if numeric.is_integer():
+                            return str(int(numeric))
+                    except (TypeError, ValueError):
+                        pass
+                    return text_value.upper()
+
+                cdm_pairs = set()
+                for _, cdm_row in cdm_frame.iterrows():
+                    id_a = _diagnostic_id(cdm_row.get("_CDM_OBJECT1"))
+                    id_b = _diagnostic_id(cdm_row.get("_CDM_OBJECT2"))
+                    if id_a and id_b:
+                        cdm_pairs.add(tuple(sorted((id_a, id_b))))
+                orion_pairs = set()
+                for _, orion_row in match_source.iterrows():
+                    id_a = _diagnostic_id(orion_row.get("NORAD_A"))
+                    id_b = _diagnostic_id(orion_row.get("NORAD_B"))
+                    if id_a and id_b:
+                        orion_pairs.add(tuple(sorted((id_a, id_b))))
+                shared_pairs = cdm_pairs.intersection(orion_pairs)
+                orion_events_with_pair = 0
+                for _, orion_row in match_source.iterrows():
+                    id_a = _diagnostic_id(orion_row.get("NORAD_A"))
+                    id_b = _diagnostic_id(orion_row.get("NORAD_B"))
+                    if id_a and id_b and tuple(sorted((id_a, id_b))) in cdm_pairs:
+                        orion_events_with_pair += 1
+
+                st.subheader("Why are there zero CDM event matches?")
+                d1, d2, d3, d4 = st.columns(4)
+                d1.metric("CDM TCA date range", cdm_date_range)
+                d2.metric("ORION-X TCA date range", orion_date_range)
+                d3.metric("Shared object pairs", len(shared_pairs))
+                d4.metric("ORION-X events with a CDM pair", orion_events_with_pair)
+                if not shared_pairs:
+                    st.warning(
+                        "No unordered object pairs overlap between this CDM file and the selected ORION-X result source. "
+                        "A 10-minute TCA match is therefore impossible until the object catalog/results and CDM export overlap."
+                    )
+                elif orion_events_with_pair and cdm_tcas.empty:
+                    st.warning("Object pairs overlap, but the CDM TCA values could not be parsed as dates.")
+                else:
+                    st.info(
+                        "Object-pair overlap is checked independently of TCA. If pairs overlap but strict matches remain zero, "
+                        "inspect the date ranges and the per-event TCA deltas below. The 10-minute tolerance is intentionally unchanged."
+                    )
+
                 matches = match_cdms_to_conjunctions(cdm_frame, match_source)
                 if not matches.empty:
                     matched = matches["CDM_MATCH_STATUS"].eq("MATCHED_WITHIN_TOLERANCE")
@@ -897,8 +959,7 @@ def render_live_tab():
             ):
                 st.session_state.pop(stale_key, None)
             st.cache_data.clear()
-            st.success(
-                "Analytical live pipeline completed: "
+            st.success(                "Analytical live pipeline completed: "
                 f"{summary.get('conjunctions', 0):,} conjunctions, "
                 f"{summary.get('analytical_pc_rows', 0):,} analytical Pc rows."
             )
