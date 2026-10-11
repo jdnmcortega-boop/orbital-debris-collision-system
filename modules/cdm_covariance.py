@@ -171,7 +171,7 @@ def match_cdms_to_conjunctions(cdm_frame, conjunctions, tolerance_minutes=DEFAUL
 
     cdm = cdm_frame.copy()
     report = validate_cdm_rows(cdm)
-    cdm = cdm.merge(report, on="CDM_SOURCE_ROW", how="left")
+    cdm = cdm.merge(report, left_on="_CDM_SOURCE_ROW", right_on="CDM_SOURCE_ROW", how="left")
     cdm["_PAIR"] = cdm.apply(
         lambda r: tuple(sorted([str(r.get("_CDM_OBJECT1_ID") or ""), str(r.get("_CDM_OBJECT2_ID") or "")])),
         axis=1,
