@@ -31,6 +31,7 @@ from modules import (
     reentry_risk,
     classical_security,
     qkd,
+    uncertainty_model,
 )
 
 # Query by the debris name prefix rather than downloading each full group.
@@ -482,6 +483,17 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
     # current-data output before rebuilding so a later calculation failure
     # cannot leave yesterday's results looking current.
     _clear_live_outputs(write_empty_warning=False)
+
+    # Streamlit can keep imported modules alive across reruns. Reload the
+    # complete dependency chain BEFORE calculating anything, not after the
+    # analytical probability file has already been produced.
+    importlib.invalidate_caches()
+    importlib.reload(uncertainty_model)
+    importlib.reload(qae)
+    importlib.reload(conjunction_detection)
+    importlib.reload(analytic_pc)
+    importlib.reload(prediction)
+    importlib.reload(false_positive)
 
     # Re-anchor this forecast at the actual refresh time, not the app boot time.
     config.GRID_START = datetime.now(timezone.utc)
