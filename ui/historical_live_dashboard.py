@@ -628,7 +628,10 @@ def render_live_tab():
         display_cols = [
             "OBJECT_A", "OBJECT_B", "TCA", "MISS_DISTANCE_KM",
             "RELATIVE_VELOCITY_KM_S", "SIGMA_A_KM", "SIGMA_B_KM",
-            "ANALYTIC_PC", "PROBABILITY_METHOD", "PROBABILITY_STATUS",
+            "ANALYTIC_PC", "PC_SENSITIVITY_HALF_SIGMA",
+            "PC_SENSITIVITY_DOUBLE_SIGMA", "HIGH_PC_THRESHOLD",
+            "HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA",
+            "PROBABILITY_METHOD", "PROBABILITY_STATUS",
         ]
         display_cols = [column for column in display_cols if column in analytic_result.columns]
         st.dataframe(analytic_result[display_cols], width="stretch", hide_index=True)
@@ -639,21 +642,66 @@ def render_live_tab():
 
     if predictions is not None and not predictions.empty:
         st.subheader("30-day risk forecast")
-        risk_col = next(
-            (c for c in ["COMPOSITE_RISK_LEVEL", "RISK_LEVEL", "ANALYTIC_RISK_LEVEL"] if c in predictions.columns),
+        st.caption(
+            "Collision probability and ORION-X response priority are separate outputs. "
+            "A HIGH-priority event is not automatically a HIGH collision probability."
+        )
+
+        pc_col = next(
+            (c for c in ["COLLISION_RISK_LEVEL", "RISK_LEVEL", "ANALYTIC_RISK_LEVEL"] if c in predictions.columns),
             None,
         )
-        if risk_col:
-            counts = predictions[risk_col].astype(str).str.upper().value_counts()
-            st.bar_chart(counts)
-            high = predictions[predictions[risk_col].astype(str).str.upper().isin(["HIGH", "CRITICAL"])]
-            if high.empty:
-                st.info("No HIGH/CRITICAL forecast rows are present in the current result file.")
-            else:
-                st.warning(f"{len(high)} HIGH/CRITICAL forecast rows require attention.")
-                st.dataframe(high, width="stretch")
+        priority_col = next(
+            (c for c in ["ORION_X_PRIORITY_LEVEL", "COMPOSITE_RISK_LEVEL"] if c in predictions.columns),
+            None,
+        )
+
+        m1, m2 = st.columns(2)
+        if pc_col:
+            pc_levels = predictions[pc_col].astype(str).str.upper()
+            high_pc = predictions[pc_levels.isin(["HIGH", "CRITICAL"])]
+            m1.metric("HIGH collision-probability events", int(len(high_pc)))
+            st.caption("Collision-probability classifications use the configured Pc threshold.")
+            if not high_pc.empty:
+                st.dataframe(high_pc, width="stretch", hide_index=True)
         else:
-            st.dataframe(predictions, width="stretch")
+            high_pc = pd.DataFrame()
+            m1.metric("HIGH collision-probability events", "Unavailable")
+
+        if priority_col:
+            priority_levels = predictions[priority_col].astype(str).str.upper()
+            high_priority = predictions[priority_levels.isin(["HIGH", "CRITICAL"])]
+            m2.metric("HIGH ORION-X response-priority events", int(len(high_priority)))
+            if not high_priority.empty:
+                st.dataframe(high_priority, width="stretch", hide_index=True)
+            else:
+                st.info("No HIGH response-priority rows are present in the current result file.")
+        else:
+            high_priority = pd.DataFrame()
+            m2.metric("HIGH ORION-X response-priority events", "Unavailable")
+
+        if (
+            "HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA" in predictions.columns
+        ):
+            reachable = predictions["HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA"].astype(str).str.lower()
+            unreachable = int(reachable.isin(["false", "0"]).sum())
+            if unreachable:
+                st.warning(
+                    f"{unreachable} event(s) cannot reach the configured HIGH Pc threshold "
+                    "even at zero miss distance under the current assumed uncertainty model. "
+                    "Sensitivity columns are illustrative only and do not alter the official Pc label."
+                )
+
+        st.subheader("All forecast events")
+        all_cols = [
+            "OBJECT_A", "NORAD_A", "OBJECT_B", "NORAD_B", "TCA",
+            "MISS_DISTANCE_KM", "RELATIVE_VELOCITY_KM_S", "ANALYTIC_PC",
+            "COLLISION_RISK_LEVEL", "ORION_X_PRIORITY_SCORE",
+            "ORION_X_PRIORITY_LEVEL", "PC_SENSITIVITY_HALF_SIGMA",
+            "PC_SENSITIVITY_DOUBLE_SIGMA", "PROBABILITY_STATUS",
+        ]
+        all_cols = [column for column in all_cols if column in predictions.columns]
+        st.dataframe(predictions[all_cols], width="stretch", hide_index=True)
 
     st.markdown(
         "**Live rule:** current data drives the forecast. Historical collision outcomes are not "
