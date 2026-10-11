@@ -258,6 +258,131 @@ def historical_replay_figure(result: pd.DataFrame, selected_day: float | None = 
     return fig
 
 
+def conjunction_signature_figure(frame: pd.DataFrame):
+    """Distinctive live conjunction bubble plot; display-only, never changes risk labels."""
+    required = {"MISS_DISTANCE_KM", "RELATIVE_VELOCITY_KM_S", "ANALYTIC_PC"}
+    if not required.issubset(frame.columns):
+        return None
+
+    plot = frame.copy()
+    for col in required:
+        plot[col] = pd.to_numeric(plot[col], errors="coerce")
+    plot = plot.dropna(subset=list(required))
+    plot = plot[(plot["MISS_DISTANCE_KM"] >= 0) & (plot["RELATIVE_VELOCITY_KM_S"] >= 0)]
+    if plot.empty:
+        return None
+
+    # The floor is used only to display zero/underflow values on a logarithmic
+    # visual scale; the source probability and official risk classification stay unchanged.
+    pc_floor = 1e-300
+    plot["_PC_LOG10"] = plot["ANALYTIC_PC"].clip(lower=pc_floor)
+    plot["_PC_ORDER"] = -plot["_PC_LOG10"].apply(lambda value: __import__("math").log10(value))
+    plot["_BUBBLE_SIZE"] = plot["_PC_ORDER"].clip(lower=1, upper=300).apply(lambda value: 7 + min(value, 300) / 18)
+
+    hover_cols = [c for c in ["OBJECT_A", "OBJECT_B", "TCA", "PROBABILITY_STATUS", "ORION_X_PRIORITY_LEVEL"] if c in plot.columns]
+    custom = plot[hover_cols].astype(str).values if hover_cols else None
+    hovertemplate = (
+        "Miss distance: %{x:.6g} km<br>Relative velocity: %{y:.6g} km/s"
+        "<br>Analytical Pc: %{marker.color:.3e}<extra></extra>"
+    )
+    # Color is log10(Pc), so retain actual Pc as color data for readable hover text.
+    plot["_PC_COLOR"] = plot["ANALYTIC_PC"].clip(lower=pc_floor)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=plot["MISS_DISTANCE_KM"],
+        y=plot["RELATIVE_VELOCITY_KM_S"],
+        mode="markers",
+        name="Conjunctions",
+        customdata=custom,
+        marker=dict(
+            size=plot["_BUBBLE_SIZE"],
+            color=plot["_PC_COLOR"],
+            colorscale="Turbo",
+            cmin=pc_floor,
+            colorbar=dict(title="Analytical Pc", tickformat=".0e"),
+            showscale=True,
+            opacity=0.82,
+            line=dict(width=0.6, color="#e2e8f0"),
+        ),
+        hovertemplate=(
+            "Miss distance: %{x:.6g} km<br>Relative velocity: %{y:.6g} km/s"
+            "<br>Analytical Pc: %{marker.color:.3e}<extra></extra>"
+        ),
+    ))
+    fig.update_layout(
+        title="Conjunction Signature Map",
+        subtitle="",
+        height=520,
+        margin=dict(l=55, r=45, t=65, b=55),
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(15,23,42,0.55)",
+    )
+    fig.update_xaxes(title="Miss distance at TCA (km)", zeroline=False, gridcolor="rgba(148,163,184,0.18)")
+    fig.update_yaxes(title="Relative velocity at TCA (km/s)", zeroline=False, gridcolor="rgba(148,163,184,0.18)")
+    return fig
+
+
+def qae_analytical_parity_figure(result: pd.DataFrame):
+    """Compare QAE estimates with analytical Pc on a log-log parity plot."""
+    needed = {"ANALYTIC_PC", "QAE_ESTIMATE"}
+    if not needed.issubset(result.columns):
+        return None
+
+    plot = result.copy()
+    plot["ANALYTIC_PC"] = pd.to_numeric(plot["ANALYTIC_PC"], errors="coerce")
+    plot["QAE_ESTIMATE"] = pd.to_numeric(plot["QAE_ESTIMATE"], errors="coerce")
+    plot = plot.replace([float("inf"), float("-inf")], pd.NA).dropna(subset=["ANALYTIC_PC", "QAE_ESTIMATE"])
+    # Log axes cannot show zero/negative values. Keep those rows in the table;
+    # this figure includes only strictly positive estimates.
+    plot = plot[(plot["ANALYTIC_PC"] > 0) & (plot["QAE_ESTIMATE"] > 0)]
+    if plot.empty:
+        return None
+
+    min_value = float(min(plot["ANALYTIC_PC"].min(), plot["QAE_ESTIMATE"].min()))
+    max_value = float(max(plot["ANALYTIC_PC"].max(), plot["QAE_ESTIMATE"].max()))
+    lo = 10 ** __import__("math").floor(__import__("math").log10(min_value))
+    hi = 10 ** __import__("math").ceil(__import__("math").log10(max_value))
+    if lo == hi:
+        lo /= 10
+        hi *= 10
+
+    hover_cols = [c for c in ["DAYS_BEFORE_EVENT", "FORECAST_MISS_DISTANCE_KM", "FORECAST_RELATIVE_VELOCITY_KM_S"] if c in plot.columns]
+    custom = plot[hover_cols].astype(str).values if hover_cols else None
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=[lo, hi], y=[lo, hi], mode="lines", name="Perfect agreement (QAE = analytical)",
+        line=dict(color="#94a3b8", dash="dash", width=2),
+        hoverinfo="skip",
+    ))
+    fig.add_trace(go.Scatter(
+        x=plot["ANALYTIC_PC"], y=plot["QAE_ESTIMATE"], mode="markers",
+        name="Historical snapshots", customdata=custom,
+        marker=dict(
+            size=10,
+            color=pd.to_numeric(plot["DAYS_BEFORE_EVENT"], errors="coerce") if "DAYS_BEFORE_EVENT" in plot.columns else "#38bdf8",
+            colorscale="Viridis",
+            showscale="DAYS_BEFORE_EVENT" in plot.columns,
+            colorbar=dict(title="Days before event") if "DAYS_BEFORE_EVENT" in plot.columns else None,
+            line=dict(width=0.8, color="#e2e8f0"),
+            opacity=0.9,
+        ),
+        hovertemplate="Analytical Pc: %{x:.3e}<br>QAE estimate: %{y:.3e}<extra></extra>",
+    ))
+    fig.update_xaxes(title="Analytical collision probability Pc", type="log", range=[__import__("math").log10(lo), __import__("math").log10(hi)])
+    fig.update_yaxes(title="QAE estimated probability", type="log", range=[__import__("math").log10(lo), __import__("math").log10(hi)])
+    fig.update_layout(
+        title="QAE vs Analytical Pc — Agreement Map",
+        height=540,
+        margin=dict(l=65, r=45, t=65, b=60),
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(15,23,42,0.55)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+    )
+    return fig
+
+
 def qae_mc_figure(result: pd.DataFrame):
     fig = go.Figure()
     x = pd.to_numeric(result["DAYS_BEFORE_EVENT"], errors="coerce")
@@ -470,7 +595,20 @@ def render_historical_tab():
     c3.metric("Forecast miss", f"{float(selected_row['FORECAST_MISS_DISTANCE_KM']):.6f} km")
     c4.metric("Probability P(collision)", format_probability(selected_row.get("ANALYTIC_PC")))
 
-    st.subheader("QAE vs Monte Carlo — historical validation")
+    st.subheader("QAE vs Analytical Pc — agreement analysis")
+    st.caption(
+        "Each point is one historical replay snapshot. The dashed diagonal is perfect agreement; "
+        "points above it mean QAE estimated a higher probability than the analytical model, and "
+        "points below it mean QAE estimated a lower probability. Zero-valued estimates are omitted "
+        "from this log-scale chart only and remain in the results table."
+    )
+    qae_analytical_fig = qae_analytical_parity_figure(result)
+    if qae_analytical_fig is not None:
+        st.plotly_chart(qae_analytical_fig, width="stretch")
+    else:
+        st.info("No positive QAE and analytical Pc values are available for a log-scale agreement plot.")
+
+    st.subheader("QAE vs Monte Carlo — time-series validation")
     st.plotly_chart(qae_mc_figure(result), width="stretch")
 
     display_cols = [
@@ -625,6 +763,16 @@ def render_live_tab():
     analytic_result = load_csv(str(analytic_path))
     if analytic_result is not None and not analytic_result.empty:
         st.subheader("Analytical collision-probability results")
+        st.caption(
+            "This conjunction signature plot maps miss distance against relative velocity. "
+            "Bubble size/color show the analytical Pc scale for visual triage only; they do not "
+            "modify the official probability values or risk labels."
+        )
+        signature_fig = conjunction_signature_figure(analytic_result)
+        if signature_fig is not None:
+            st.plotly_chart(signature_fig, width="stretch")
+        else:
+            st.info("The signature plot needs numeric miss distance, relative velocity, and analytical Pc columns.")
         display_cols = [
             "OBJECT_A", "OBJECT_B", "TCA", "MISS_DISTANCE_KM",
             "RELATIVE_VELOCITY_KM_S", "SIGMA_A_KM", "SIGMA_B_KM",
