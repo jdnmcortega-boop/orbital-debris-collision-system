@@ -134,12 +134,27 @@ def load_cdm_csv(source):
     return frame
 
 
+def has_position_covariance_fields(columns):
+    """Whether the source contains any expected flattened RTN position-covariance fields."""
+    return any(
+        _covariance_column(columns, sat, key) is not None
+        for sat in (1, 2)
+        for key in COV_KEYS
+    )
+
+
 def validate_cdm_rows(cdm_frame):
-    """Return one auditable validation row per CDM row."""
+    """Return one auditable validation row per CDM row, distinguishing Pc-only exports."""
     reports = []
+    covariance_fields_present = has_position_covariance_fields(cdm_frame.columns)
+    pc_column = _find_column(cdm_frame.columns, ["PC", "COLLISION_PROBABILITY"])
     for _, row in cdm_frame.iterrows():
-        cov_a, status_a = _object_covariance(row, cdm_frame.columns, 1)
-        cov_b, status_b = _object_covariance(row, cdm_frame.columns, 2)
+        if covariance_fields_present:
+            cov_a, status_a = _object_covariance(row, cdm_frame.columns, 1)
+            cov_b, status_b = _object_covariance(row, cdm_frame.columns, 2)
+        else:
+            cov_a, cov_b = None, None
+            status_a = status_b = "COVARIANCE_NOT_PROVIDED_IN_SOURCE"
         tca = row.get("_CDM_TCA")
         reports.append({
             "CDM_SOURCE_ROW": int(row.get("_CDM_SOURCE_ROW", len(reports) + 1)),
@@ -161,10 +176,17 @@ def validate_cdm_rows(cdm_frame):
             "COVARIANCE_VALIDATION_STATUS": (
                 "BOTH_POSITION_BLOCKS_VALID" if cov_a and cov_b
                 else "PARTIAL_COVARIANCE" if cov_a or cov_b
+                else "PC_ONLY_REFERENCE_RECORD" if (not covariance_fields_present and pc_column and np.isfinite(_number(row.get(pc_column))))
+                else "NO_COVARIANCE_FIELDS_IN_SOURCE" if not covariance_fields_present
                 else "NO_VALID_POSITION_COVARIANCE"
             ),
             "NOTE": (
-                "Position block only; not yet used for Pc. Confirm units/frame and "
+                "This export has reported Pc but no expected flattened position-covariance fields; "
+                "Pc is reference data and cannot be used to reconstruct covariance."
+                if not covariance_fields_present and pc_column and np.isfinite(_number(row.get(pc_column)))
+                else "No expected flattened position-covariance fields were supplied in this CSV."
+                if not covariance_fields_present
+                else "Position block only; not yet used for Pc. Confirm units/frame and "
                 "implement encounter-plane covariance transformation before probability use."
             ),
         })
