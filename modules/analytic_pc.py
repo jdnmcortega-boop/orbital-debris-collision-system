@@ -134,8 +134,11 @@ def build_analytic_pc_results(conjunctions, orbital_data_df):
                 np.isfinite(pc_max) and pc_max >= high_threshold
             )
             row["PROBABILITY_METHOD"] = "2D isotropic analytical encounter-plane model"
-            row["UNCERTAINTY_SOURCE"] = (
-                "Assumed age-scaled isotropic sigma; not measured covariance"
+            row["UNCERTAINTY_SOURCE"] = "TLE_AGE_SCALED_ASSUMPTION"
+            row["UNCERTAINTY_VALIDATION_STATUS"] = "NOT_VALIDATED"
+            row["UNCERTAINTY_SOURCE_DETAIL"] = (
+                "Age-scaled isotropic sigma derived from TLE epoch; not measured "
+                "object-specific covariance and not empirically calibrated."
             )
             row["PROBABILITY_STATUS"] = (
                 "MODELED_ESTIMATE"
@@ -171,7 +174,9 @@ def build_analytic_pc_results(conjunctions, orbital_data_df):
             row["HIGH_PC_THRESHOLD"] = high_threshold
             row["HIGH_THRESHOLD_REACHABLE_UNDER_SIGMA"] = False
             row["PROBABILITY_METHOD"] = "2D isotropic analytical encounter-plane model"
-            row["UNCERTAINTY_SOURCE"] = "Unavailable"
+            row["UNCERTAINTY_SOURCE"] = "INSUFFICIENT_DATA"
+            row["UNCERTAINTY_VALIDATION_STATUS"] = "NOT_AVAILABLE"
+            row["UNCERTAINTY_SOURCE_DETAIL"] = f"Uncertainty could not be calculated: {exc}"
             row["PROBABILITY_STATUS"] = f"NOT_CALCULATED: {exc}"
             row["ALTITUDE_DIFFERENCE_KM"] = np.nan
             row["INCLINATION_DIFFERENCE_DEG"] = np.nan
