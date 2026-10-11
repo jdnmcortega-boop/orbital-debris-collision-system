@@ -735,6 +735,55 @@ def render_live_tab():
     # Current live workflow: analytical collision probability is primary.
     # Monte Carlo is not required for the present-day forecast.
     st.divider()
+    st.subheader("🛰️ CDM covariance import and validation")
+    st.caption(
+        "Upload a flattened Space-Track/CCSDS CDM CSV to check whether its object pair "
+        "and TCA match the screened conjunctions, and whether both objects have usable "
+        "3×3 RTN position-covariance blocks. This is a validation/import step only: "
+        "these covariance blocks are not yet used to calculate Pc."
+    )
+    cdm_upload = st.file_uploader(
+        "Upload CDM CSV",
+        type=["csv"],
+        key="orion_cdm_covariance_upload",
+        help="Use a flattened CDM CSV with TCA, object designators/IDs, and SAT1_/SAT2_ covariance fields such as CR_R, CT_R, CT_T, CN_R, CN_T, CN_N.",
+    )
+    if cdm_upload is not None:
+        try:
+            from modules.cdm_covariance import load_cdm_csv, validate_cdm_rows, match_cdms_to_conjunctions
+
+            cdm_frame = load_cdm_csv(cdm_upload)
+            cdm_validation = validate_cdm_rows(cdm_frame)
+            valid_both = int((cdm_validation["COVARIANCE_VALIDATION_STATUS"] == "BOTH_POSITION_BLOCKS_VALID").sum())
+            c1, c2, c3 = st.columns(3)
+            c1.metric("CDM records", int(len(cdm_frame)))
+            c2.metric("Both position blocks valid", valid_both)
+            c3.metric("No valid position blocks", int((cdm_validation["COVARIANCE_VALIDATION_STATUS"] == "NO_VALID_POSITION_COVARIANCE").sum()))
+            st.subheader("CDM covariance checks")
+            st.dataframe(cdm_validation, width="stretch")
+            if conjunctions is not None and not conjunctions.empty:
+                matches = match_cdms_to_conjunctions(cdm_frame, conjunctions)
+                if not matches.empty:
+                    matched = matches["CDM_MATCH_STATUS"].eq("MATCHED_WITHIN_TOLERANCE")
+                    st.metric("Conjunctions matched to CDM within 10 minutes", int(matched.sum()))
+                    st.dataframe(matches, width="stretch")
+                    st.download_button(
+                        "Download CDM matching report",
+                        data=matches.to_csv(index=False).encode("utf-8"),
+                        file_name="orion_x_cdm_match_report.csv",
+                        mime="text/csv",
+                    )
+            else:
+                st.info("Load or rebuild the conjunction file to match CDM rows against ORION-X events.")
+            st.warning(
+                "Do not interpret a valid RTN covariance block as a validated Pc yet. "
+                "The current probability pipeline still uses the explicitly labeled TLE-age-scaled model; "
+                "a full encounter-plane covariance transformation and independent verification are required before substitution."
+            )
+        except Exception as exc:
+            st.error(f"Could not parse or validate this CDM CSV: {exc}")
+
+    st.divider()
     st.subheader("🎯 Live conjunction + analytical collision probability")
     st.caption(
         "Rebuilds the 30-day SGP4 propagation grid, screens conjunctions, "
