@@ -233,6 +233,30 @@ def render_overview():
             f"Status: {refresh_summary.get('status', 'unknown')}"
         )
 
+        research_artifacts = refresh_summary.get("research_artifacts", {})
+        github_publish = research_artifacts.get("github_publish", {})
+        if github_publish.get("status") == "published":
+            repo = github_publish.get("repository", "jdnmcortega-boop/orbital-debris-collision-system")
+            branch = github_publish.get("branch", "live-results")
+            st.success(
+                f"Live research files published to GitHub: {repo} / {branch}. "
+                f"Files uploaded: {len(github_publish.get('published_files', []))}."
+            )
+            st.markdown(
+                f"[Open the generated live results on GitHub](https://github.com/{repo}/tree/{branch}/results)"
+            )
+        elif github_publish.get("status") == "not_configured":
+            st.warning(
+                "Research result files were generated in the running app, but were not committed to GitHub. "
+                "To enable automatic publishing, add ORION_GITHUB_TOKEN in your Streamlit app's Secrets. "
+                "See docs/AUTOMATIC_RESULTS_PUBLISHING.md."
+            )
+        elif github_publish.get("status") == "failed":
+            st.warning(
+                "Research files were generated locally, but GitHub publishing failed. "
+                "Check the token's repository Contents: read/write permission and the Streamlit logs."
+            )
+
     orbital = load_orbital_data()
     conjunction_path = Path(getattr(config, "CONJUNCTIONS_FILE", PROJECT_ROOT / "data" / "processed" / "conjunctions.csv"))
     predictions_path = PROJECT_ROOT / "results" / "predictions.csv"
