@@ -40,13 +40,36 @@ def _number(value):
 
 
 def _covariance_column(columns, sat, key):
+    # Support common flattened exports, including object-prefixed CCSDS names.
     candidates = [
         f"SAT{sat}_{key}",
+        f"SAT_{sat}_{key}",
+        f"SAT{sat}_COVARIANCE_{key}",
+        f"SAT_{sat}_COVARIANCE_{key}",
         f"OBJECT{sat}_{key}",
         f"OBJECT_{sat}_{key}",
+        f"OBJECT{sat}_COVARIANCE_{key}",
+        f"OBJECT_{sat}_COVARIANCE_{key}",
+        f"COVARIANCE_{sat}_{key}",
         f"{key}_{sat}",
     ]
     return _find_column(columns, candidates)
+
+
+def _normalize_id(value):
+    """Normalize numeric catalog IDs without coercing nonnumeric designators."""
+    if value is None or pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    try:
+        numeric = float(text)
+        if np.isfinite(numeric) and numeric.is_integer():
+            return str(int(numeric))
+    except (TypeError, ValueError):
+        pass
+    return text.upper()
 
 
 def _object_id(row, columns, sat):
@@ -204,8 +227,14 @@ def match_cdms_to_conjunctions(cdm_frame, conjunctions, tolerance_minutes=DEFAUL
     cdm = cdm_frame.copy()
     report = validate_cdm_rows(cdm)
     cdm = cdm.merge(report, left_on="_CDM_SOURCE_ROW", right_on="CDM_SOURCE_ROW", how="left")
+    # load_cdm_csv stores normalized source identifiers as _CDM_OBJECT1/2.
+    # The validation report uses CDM_OBJECT1_ID/2_ID (without leading underscores),
+    # so referencing _CDM_OBJECT1_ID here silently produced empty object pairs.
     cdm["_PAIR"] = cdm.apply(
-        lambda r: tuple(sorted([str(r.get("_CDM_OBJECT1_ID") or ""), str(r.get("_CDM_OBJECT2_ID") or "")])),
+        lambda r: tuple(sorted([
+            _normalize_id(r.get("_CDM_OBJECT1")),
+            _normalize_id(r.get("_CDM_OBJECT2")),
+        ])),
         axis=1,
     )
     cdm = cdm[cdm["_CDM_TCA"].notna()].copy()
@@ -217,7 +246,10 @@ def match_cdms_to_conjunctions(cdm_frame, conjunctions, tolerance_minutes=DEFAUL
     event_pc_max_col = _find_column(events.columns, ["ANALYTIC_PC_MAX_AT_ZERO_MISS"])
     event_miss_col = _find_column(events.columns, ["MISS_DISTANCE_KM", "MIN_RNG", "MIN_RANGE"])
     events["_PAIR"] = events.apply(
-        lambda r: tuple(sorted([str(int(r["NORAD_A"])), str(int(r["NORAD_B"]))])),
+        lambda r: tuple(sorted([
+            _normalize_id(r.get("NORAD_A")),
+            _normalize_id(r.get("NORAD_B")),
+        ])),
         axis=1,
     )
 
