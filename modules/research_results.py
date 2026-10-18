@@ -77,7 +77,7 @@ def build_live_research_artifacts(fresh_df, propagated, conjunctions, analytic_r
     conjunctions = conjunctions if isinstance(conjunctions, pd.DataFrame) else _read_csv(config.CONJUNCTIONS_FILE)
     analytic_results = analytic_results if isinstance(analytic_results, pd.DataFrame) else _read_csv(out / "analytic_pc_results.csv")
     predictions = predictions if isinstance(predictions, pd.DataFrame) else _read_csv(out / "predictions.csv")
-    qae_results = qae_results if isinstance(qae_results, pd.DataFrame) else _read_csv(out / "qae_results.csv")
+    qae_results = qae_results if isinstance(qae_results, pd.DataFrame) else _read_csv(out / "qae_comparison.csv")
     fp_results = fp_results if isinstance(fp_results, pd.DataFrame) else _read_csv(out / "false_positive_analysis.csv")
     reentry_results = reentry_results if isinstance(reentry_results, pd.DataFrame) else _read_csv(out / "reentry_analysis.csv")
     quality = _read_json(out / "data_quality_report.json")
