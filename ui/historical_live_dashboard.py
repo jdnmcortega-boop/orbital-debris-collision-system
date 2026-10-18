@@ -872,12 +872,25 @@ def render_live_tab():
                     if id_a and id_b and tuple(sorted((id_a, id_b))) in cdm_pairs:
                         orion_events_with_pair += 1
 
-                st.subheader("Why are there zero CDM event matches?")
-                d1, d2, d3, d4 = st.columns(4)
+                st.subheader("CDM event-match diagnostics")
+                cdm_rows_with_pair = sum(
+                    1 for _, row in cdm_frame.iterrows()
+                    if _diagnostic_id(row.get("_CDM_OBJECT1"))
+                    and _diagnostic_id(row.get("_CDM_OBJECT2"))
+                )
+                orion_rows_with_pair = sum(
+                    1 for _, row in match_source.iterrows()
+                    if _diagnostic_id(row.get("NORAD_A"))
+                    and _diagnostic_id(row.get("NORAD_B"))
+                )
+                d1, d2, d3 = st.columns(3)
                 d1.metric("CDM TCA date range", cdm_date_range)
                 d2.metric("ORION-X TCA date range", orion_date_range)
-                d3.metric("Shared object pairs", len(shared_pairs))
-                d4.metric("ORION-X events with a CDM pair", orion_events_with_pair)
+                d3.metric("CDM rows with both IDs", cdm_rows_with_pair)
+                d4, d5, d6 = st.columns(3)
+                d4.metric("ORION-X events with both IDs", orion_rows_with_pair)
+                d5.metric("Shared object pairs", len(shared_pairs))
+                d6.metric("ORION-X events with a CDM pair", orion_events_with_pair)
                 if not shared_pairs:
                     st.warning(
                         "No unordered object pairs overlap between this CDM file and the selected ORION-X result source. "
