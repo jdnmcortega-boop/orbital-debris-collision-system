@@ -481,8 +481,6 @@ def build_live_research_artifacts(fresh_df, propagated, conjunctions, analytic_r
     _write_json(out / "live_run_summary.json", live_summary)
     # Publish the summary last so it records the status of the other uploads.
     summary_publish_status = _publish_live_artifacts([out / "live_run_summary.json"])
-    live_summary["github_summary_publish"] = summary_publish_status
-    _write_json(out / "live_run_summary.json", live_summary)
 
     return {
         "live_run_summary": str(out / "live_run_summary.json"),
@@ -491,5 +489,6 @@ def build_live_research_artifacts(fresh_df, propagated, conjunctions, analytic_r
         "research_report": str(out / "research_results_live.md"),
         "objectives_report": str(out / "results_by_research_objectives.md"),
         "github_publish": publish_status,
+        "github_summary_publish": summary_publish_status,
         "generated_at_utc": now,
     }
