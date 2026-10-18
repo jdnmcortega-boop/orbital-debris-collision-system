@@ -1,0 +1,43 @@
+{
+  "report_type": "live_run_hypothesis_status",
+  "generated_at_utc": "2026-10-18T22:46:32.933137+00:00",
+  "alpha": 0.05,
+  "hypotheses": [
+    {
+      "id": "H01",
+      "null_hypothesis": "ORION-X does not meet the predefined conjunction-detection and classification accuracy criteria.",
+      "status": "NOT_TESTED_IN_THIS_REFRESH",
+      "decision": "INCONCLUSIVE",
+      "evidence": {
+        "current_run_conjunctions": 808,
+        "cdm_comparison_file_present": false,
+        "cdm_matches_within_tolerance": null
+      },
+      "reason": "A current conjunction count alone cannot measure accuracy. A matched, verified reference set with false-positive and false-negative accounting is required."
+    },
+    {
+      "id": "H02",
+      "null_hypothesis": "There is no statistically significant difference between QAE and Monte Carlo estimation errors.",
+      "status": "NOT_TESTED_IN_THIS_REFRESH",
+      "decision": "INCONCLUSIVE",
+      "evidence": {
+        "current_run_qae_rows": 808,
+        "current_run_monte_carlo_rows": 0,
+        "paired_test_performed": false
+      },
+      "reason": "The live pipeline intentionally skips Monte Carlo by default. The fixed benchmark test is separate and must not be described as a fresh live-run test."
+    },
+    {
+      "id": "H03",
+      "null_hypothesis": "There is no statistically significant difference between QKD and classical transmission under the specified test conditions.",
+      "status": "PER_RUN_OUTPUTS_GENERATED_BUT_NO_NEW_MULTI_TRIAL_TEST",
+      "decision": "INCONCLUSIVE_FOR_THIS_REFRESH",
+      "evidence": {
+        "classical_security_output_present": true,
+        "qkd_output_present": true,
+        "new_fisher_or_other_hypothesis_test_performed": false
+      },
+      "reason": "A refresh creates current security output files, but does not perform a multi-trial paired or independent-sample experiment. Preserve the fixed benchmark test as a separately labeled result."
+    }
+  ]
+}
