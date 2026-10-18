@@ -275,7 +275,7 @@ def render_overview():
                 predictions[priority_col].astype(str).str.upper().eq("HIGH").sum()
             )
 
-    c4.metric("HIGH collision-probability events", high_pc_count)
+    c4.metric("HIGH ORION-X response-priority events", high_priority_count)
     unreachable_count = 0
     if (
         predictions is not None
