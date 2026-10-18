@@ -32,6 +32,7 @@ from modules import (
     classical_security,
     qkd,
     uncertainty_model,
+    research_results,
 )
 
 # Query by the debris name prefix rather than downloading each full group.
