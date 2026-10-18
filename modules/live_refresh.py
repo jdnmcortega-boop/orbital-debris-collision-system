@@ -447,7 +447,7 @@ def _clear_live_outputs(write_empty_warning=True):
         config.RESULTS_DIR / "monte_carlo_results.csv",
         config.RESULTS_DIR / "analytic_pc_results.csv",
         config.RESULTS_DIR / "predictions.csv",
-        config.RESULTS_DIR / "qae_comparison.csv",
+        config.RESULTS_DIR / "qae_comparison.csv",\n        config.RESULTS_DIR / "qae_results.csv",
         config.RESULTS_DIR / "false_positive_analysis.csv",
         config.RESULTS_DIR / "reentry_analysis.csv",
         config.RESULTS_DIR / "classical_security_results.json",
@@ -535,9 +535,21 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
         )
         classical_security.run_and_save()
         qkd.run_and_save(n_qubits=512)
+        _progress(progress_callback, "Generating objective and hypothesis result files for this zero-conjunction run")
+        artifacts = research_results.build_live_research_artifacts(
+            fresh_df=fresh_df,
+            propagated=propagated,
+            conjunctions=conjunctions,
+            analytic_results=pd.DataFrame(),
+            predictions=pd.DataFrame(),
+            qae_results=pd.DataFrame(),
+            fp_results=pd.DataFrame(),
+            reentry_results=pd.DataFrame(),
+            failed_objects=failed_objects,
+        )
         _progress(
             progress_callback,
-            "Refresh complete: no current pairs passed the screening threshold; stale risk outputs cleared",
+            "Refresh complete: zero-conjunction results and research artifacts saved; stale risk outputs cleared",
         )
         return {
             "orbital_objects": int(fresh_df["NORAD_CAT_ID"].nunique()),
@@ -545,7 +557,9 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
             "failed_objects": int(len(failed_objects)),
             "conjunctions": 0,
             "monte_carlo_rows": 0,
+            "analytical_pc_rows": 0,
             "prediction_rows": 0,
+            "research_artifacts": artifacts,
             "data_epoch_latest_utc": pd.to_datetime(fresh_df["EPOCH"], utc=True).max().isoformat(),
             "forecast_start_utc": config.GRID_START.isoformat(),
             "status": "completed_no_conjunctions",
@@ -592,7 +606,20 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
     classical_security.run_and_save()
     qkd.run_and_save(n_qubits=512)
 
-    _progress(progress_callback, "All current/live result files have been replaced")
+    _progress(progress_callback, "Generating objective and hypothesis result files from the completed live run")
+    artifacts = research_results.build_live_research_artifacts(
+        fresh_df=fresh_df,
+        propagated=propagated,
+        conjunctions=conjunctions,
+        analytic_results=analytic_results,
+        predictions=predictions,
+        qae_results=qae_results,
+        fp_results=fp_results,
+        reentry_results=reentry_results,
+        failed_objects=failed_objects,
+    )
+
+    _progress(progress_callback, "All current/live result and research report files have been replaced")
     return {
         "orbital_objects": int(fresh_df["NORAD_CAT_ID"].nunique()),
         "propagated_states": int(len(propagated)),
@@ -603,7 +630,7 @@ def refresh_all_live_results(progress_callback=None, uploaded_csv=None):
         "prediction_rows": int(len(predictions)),
         "qae_rows": int(len(qae_results)) if qae_results is not None else 0,
         "false_positive_rows": int(len(fp_results)) if fp_results is not None else 0,
-        "reentry_rows": int(len(reentry_results)) if reentry_results is not None else 0,
+        "reentry_rows": int(len(reentry_results)) if reentry_results is not None else 0,\n        "research_artifacts": artifacts,
         "data_epoch_latest_utc": pd.to_datetime(fresh_df["EPOCH"], utc=True).max().isoformat(),
         "forecast_start_utc": config.GRID_START.isoformat(),
         "status": "completed",
