@@ -9,6 +9,10 @@ from collections import Counter
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import base64
+import os
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pandas as pd
@@ -65,6 +69,99 @@ def _risk_counts(frame: pd.DataFrame):
 
 def _write_json(path: Path, payload):
     path.write_text(json.dumps(payload, indent=2, default=str, allow_nan=False), encoding="utf-8")
+
+
+def _github_credentials():
+    """Read an optional write token from environment or Streamlit secrets."""
+    token = os.getenv("ORION_GITHUB_TOKEN", "").strip()
+    repository = os.getenv(
+        "ORION_GITHUB_REPOSITORY",
+        "jdnmcortega-boop/orbital-debris-collision-system",
+    ).strip()
+    if not token:
+        try:
+            import streamlit as st
+            token = str(st.secrets.get("ORION_GITHUB_TOKEN", "")).strip()
+            repository = str(
+                st.secrets.get("ORION_GITHUB_REPOSITORY", repository)
+            ).strip()
+        except Exception:
+            pass
+    return token, repository
+
+
+def _put_github_file(repository, token, path, content):
+    """Create/update one file using GitHub's Contents API without exposing the token."""
+    url = f"https://api.github.com/repos/{repository}/contents/{path}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "ORION-X-live-results-publisher",
+    }
+    existing_sha = None
+    try:
+        req = Request(url, headers=headers, method="GET")
+        with urlopen(req, timeout=15) as response:
+            existing = json.loads(response.read().decode("utf-8"))
+            existing_sha = existing.get("sha")
+    except HTTPError as exc:
+        if exc.code != 404:
+            raise
+    payload = {
+        "message": f"Update live ORION-X research results: {Path(path).name}",
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        "branch": "main",
+    }
+    if existing_sha:
+        payload["sha"] = existing_sha
+    req = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={**headers, "Content-Type": "application/json"},
+        method="PUT",
+    )
+    with urlopen(req, timeout=30) as response:
+        return json.loads(response.read().decode("utf-8")).get("commit", {}).get("sha")
+
+
+def _publish_live_artifacts(paths):
+    token, repository = _github_credentials()
+    if not token:
+        return {
+            "status": "not_configured",
+            "repository": repository,
+            "published_files": [],
+            "message": "Live files were generated in the app runtime. Add ORION_GITHUB_TOKEN to Streamlit secrets to publish them to GitHub automatically.",
+        }
+    published = []
+    commits = []
+    try:
+        for path in paths:
+            commit_sha = _put_github_file(
+                repository,
+                token,
+                f"results/{Path(path).name}",
+                Path(path).read_text(encoding="utf-8"),
+            )
+            published.append(f"results/{Path(path).name}")
+            if commit_sha:
+                commits.append(commit_sha)
+        return {
+            "status": "published",
+            "repository": repository,
+            "published_files": published,
+            "latest_commit_sha": commits[-1] if commits else None,
+        }
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+        # Never include request headers or the secret in diagnostic output.
+        return {
+            "status": "failed",
+            "repository": repository,
+            "published_files": published,
+            "error": f"{type(exc).__name__}: {exc}",
+            "message": "Files were generated locally, but automatic GitHub publishing did not finish. Check token permissions and Streamlit logs.",
+        }
 
 
 def build_live_research_artifacts(fresh_df, propagated, conjunctions, analytic_results=None,
@@ -333,6 +430,20 @@ def build_live_research_artifacts(fresh_df, propagated, conjunctions, analytic_r
     # Keep the established report path current too, so the GitHub report link
     # reflects the most recent successful live refresh.
     (out / "results_by_research_objectives.md").write_text(report_text, encoding="utf-8")
+
+    publish_paths = [
+        out / "objective_results_live.json",
+        out / "hypothesis_results_live.json",
+        out / "research_results_live.md",
+        out / "results_by_research_objectives.md",
+    ]
+    publish_status = _publish_live_artifacts(publish_paths)
+    live_summary["github_publish"] = publish_status
+    _write_json(out / "live_run_summary.json", live_summary)
+    # Publish the summary last so it records the status of the other uploads.
+    summary_publish_status = _publish_live_artifacts([out / "live_run_summary.json"])
+    live_summary["github_summary_publish"] = summary_publish_status
+    _write_json(out / "live_run_summary.json", live_summary)
 
     return {
         "live_run_summary": str(out / "live_run_summary.json"),
