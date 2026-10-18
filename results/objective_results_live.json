@@ -1,0 +1,180 @@
+{
+  "report_type": "live_run_objective_evidence",
+  "generated_at_utc": "2026-10-18T22:46:32.933137+00:00",
+  "run": {
+    "report_type": "live_run",
+    "generated_at_utc": "2026-10-18T22:46:32.933137+00:00",
+    "forecast_start_utc": "2026-10-18T22:42:01.357271+00:00",
+    "forecast_horizon_days": 30,
+    "orbital_objects": 150,
+    "latest_orbital_epoch_utc": "2026-10-09T23:33:49.876000+00:00",
+    "propagated_state_rows": 2160150,
+    "failed_object_count": 0,
+    "conjunction_count": 808,
+    "analytical_pc_rows": 808,
+    "prediction_rows": 808,
+    "qae_rows": 808,
+    "false_positive_analysis_rows": 808,
+    "reentry_analysis_rows": 808,
+    "miss_distance_km": {
+      "column": "MISS_DISTANCE_KM",
+      "count": 808,
+      "min": 0.7455414072067872,
+      "median": 39.78392091283804,
+      "max": 67.94431136680203
+    },
+    "relative_velocity_km_s": {
+      "column": "RELATIVE_VELOCITY_KM_S",
+      "count": 808,
+      "min": 0.02129990126030805,
+      "median": 8.54108738635285,
+      "max": 15.219494920608014
+    },
+    "analytical_pc": {
+      "column": "ANALYTIC_PC",
+      "count": 808,
+      "min": 1.8174914685552013e-09,
+      "median": 3.4189926933653355e-08,
+      "max": 3.7253308058050087e-07
+    },
+    "collision_probability_risk_counts": {
+      "LOW": 808
+    },
+    "response_priority_counts": {
+      "LOW": 694,
+      "MEDIUM": 110,
+      "HIGH": 4
+    },
+    "probability_source_counts": {
+      "Analytical Pc (assumed uncertainty model)": 808
+    },
+    "classical_security_result_present": true,
+    "qkd_result_present": true,
+    "data_quality_report_present": true,
+    "monte_carlo_rows": 0,
+    "note": "This summary is generated after the live pipeline completes. Fixed benchmark experiments and historical CDM validation are not silently relabeled as live-run results."
+  },
+  "objectives": [
+    {
+      "objective": 1,
+      "topic": "Estimate collision probability using relative motion, orbital information, modeled uncertainty, and collision-region probability.",
+      "current_run_evidence": {
+        "conjunction_count": 808,
+        "miss_distance_km": {
+          "column": "MISS_DISTANCE_KM",
+          "count": 808,
+          "min": 0.7455414072067872,
+          "median": 39.78392091283804,
+          "max": 67.94431136680203
+        },
+        "relative_velocity_km_s": {
+          "column": "RELATIVE_VELOCITY_KM_S",
+          "count": 808,
+          "min": 0.02129990126030805,
+          "median": 8.54108738635285,
+          "max": 15.219494920608014
+        },
+        "analytical_pc": {
+          "column": "ANALYTIC_PC",
+          "count": 808,
+          "min": 1.8174914685552013e-09,
+          "median": 3.4189926933653355e-08,
+          "max": 3.7253308058050087e-07
+        },
+        "modeled_uncertainty_fields_available": true,
+        "maximum_pc_at_zero_miss_stats": {
+          "column": "ANALYTIC_PC_MAX_AT_ZERO_MISS",
+          "count": 808,
+          "min": 1.846706779382554e-09,
+          "median": 4.5828984825845e-08,
+          "max": 4.022369229668246e-07
+        },
+        "monte_carlo_rows": 0
+      },
+      "limitation": "The analytical model uses modeled uncertainty unless valid object-specific covariance is imported and correctly transformed. Live Monte Carlo is not run by default; a missing MC table is not a zero-probability result."
+    },
+    {
+      "objective": 2,
+      "topic": "Evaluate conjunction detection.",
+      "current_run_evidence": {
+        "objects": 150,
+        "propagated_state_rows": 2160150,
+        "detected_conjunctions": 808,
+        "tca_column_present": true,
+        "miss_distance_km": {
+          "column": "MISS_DISTANCE_KM",
+          "count": 808,
+          "min": 0.7455414072067872,
+          "median": 39.78392091283804,
+          "max": 67.94431136680203
+        }
+      },
+      "limitation": "Precision, recall, false-positive rate, and false-negative rate require a verified reference event set for the same time window. They are not inferred from event counts alone."
+    },
+    {
+      "objective": 3,
+      "topic": "Compare QAE with classical Monte Carlo.",
+      "current_run_evidence": {
+        "qae_rows": 808,
+        "monte_carlo_rows": 0,
+        "analytical_pc_rows": 808
+      },
+      "limitation": "A live paired significance test is not run unless paired current-run QAE and Monte Carlo estimates are available. The fixed benchmark hypothesis test is retained separately and is not overwritten by this refresh."
+    },
+    {
+      "objective": 4,
+      "topic": "Compare QKD and classical secure transmission.",
+      "current_run_evidence": {
+        "classical_security_output_present": true,
+        "qkd_output_present": true,
+        "classical_result_keys": [
+          "ciphertext_bytes",
+          "handshake_runtime_sec",
+          "method",
+          "plaintext_bytes",
+          "public_key_bytes_exchanged",
+          "round_trip_verified"
+        ],
+        "qkd_result_keys": [
+          "ciphertext_bytes",
+          "final_key_length_bits_honest",
+          "honest_eavesdropping_detected",
+          "honest_qber",
+          "intercepted_eavesdropping_detected",
+          "intercepted_qber",
+          "message_round_trip_verified",
+          "qubits_transmitted_honest",
+          "qubits_transmitted_intercepted"
+        ]
+      },
+      "limitation": "The refresh writes per-run security outputs, but a single run is not a statistical benchmark. The fixed multi-trial benchmark and its hypothesis test are kept distinct."
+    },
+    {
+      "objective": 5,
+      "topic": "Classify conjunctions by collision probability and response priority.",
+      "current_run_evidence": {
+        "collision_probability_risk_counts": {
+          "LOW": 808
+        },
+        "response_priority_counts": {
+          "LOW": 694,
+          "MEDIUM": 110,
+          "HIGH": 4
+        },
+        "probability_source_counts": {
+          "Analytical Pc (assumed uncertainty model)": 808
+        }
+      },
+      "limitation": "Collision-probability classification and response-priority ranking are separate metrics. A lack of HIGH labels is not proof that no real conjunction is dangerous."
+    },
+    {
+      "objective": 6,
+      "topic": "Prioritize debris for further assessment and possible removal.",
+      "current_run_evidence": {
+        "reentry_analysis_rows": 808,
+        "debris_involved_events": 764
+      },
+      "limitation": "This is a screening list, not an authorization or recommendation to remove a specific object. Verify nonfunctional debris status, consequences, uncertainty, and removal feasibility; never classify an active spacecraft as a removal target."
+    }
+  ]
+}
