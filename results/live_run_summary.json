@@ -1,0 +1,65 @@
+{
+  "report_type": "live_run",
+  "generated_at_utc": "2026-10-18T22:46:32.933137+00:00",
+  "forecast_start_utc": "2026-10-18T22:42:01.357271+00:00",
+  "forecast_horizon_days": 30,
+  "orbital_objects": 150,
+  "latest_orbital_epoch_utc": "2026-10-09T23:33:49.876000+00:00",
+  "propagated_state_rows": 2160150,
+  "failed_object_count": 0,
+  "conjunction_count": 808,
+  "analytical_pc_rows": 808,
+  "prediction_rows": 808,
+  "qae_rows": 808,
+  "false_positive_analysis_rows": 808,
+  "reentry_analysis_rows": 808,
+  "miss_distance_km": {
+    "column": "MISS_DISTANCE_KM",
+    "count": 808,
+    "min": 0.7455414072067872,
+    "median": 39.78392091283804,
+    "max": 67.94431136680203
+  },
+  "relative_velocity_km_s": {
+    "column": "RELATIVE_VELOCITY_KM_S",
+    "count": 808,
+    "min": 0.02129990126030805,
+    "median": 8.54108738635285,
+    "max": 15.219494920608014
+  },
+  "analytical_pc": {
+    "column": "ANALYTIC_PC",
+    "count": 808,
+    "min": 1.8174914685552013e-09,
+    "median": 3.4189926933653355e-08,
+    "max": 3.7253308058050087e-07
+  },
+  "collision_probability_risk_counts": {
+    "LOW": 808
+  },
+  "response_priority_counts": {
+    "LOW": 694,
+    "MEDIUM": 110,
+    "HIGH": 4
+  },
+  "probability_source_counts": {
+    "Analytical Pc (assumed uncertainty model)": 808
+  },
+  "classical_security_result_present": true,
+  "qkd_result_present": true,
+  "data_quality_report_present": true,
+  "monte_carlo_rows": 0,
+  "note": "This summary is generated after the live pipeline completes. Fixed benchmark experiments and historical CDM validation are not silently relabeled as live-run results.",
+  "github_publish": {
+    "status": "published",
+    "repository": "jdnmcortega-boop/orbital-debris-collision-system",
+    "branch": "live-results",
+    "published_files": [
+      "results/objective_results_live.json",
+      "results/hypothesis_results_live.json",
+      "results/research_results_live.md",
+      "results/results_by_research_objectives.md"
+    ],
+    "latest_commit_sha": "1956bbc7e4f2b477eb18601b03db96002cd41046"
+  }
+}
