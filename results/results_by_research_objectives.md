@@ -1,111 +1,123 @@
-# ORION-X Results by Research Objective
+# ORION-X Research Results and Current Validation Status
 
-**Repository examined:** https://github.com/jdnmcortega-boop/orbital-debris-collision-system  
-**Evidence basis:** Saved outputs currently present in the repository (including `results/dashboard_summary.json`, `results/predictions.csv`, `results/qae_results.csv`, `results/qae_accuracy_sweep.csv`, `results/hypothesis_test_results.json`, and `results/benchmark_summary.json`). These are repository snapshots, not a fresh execution of the deployed dashboard on 18 October 2026.
+**Repository:** https://github.com/jdnmcortega-boop/orbital-debris-collision-system  
+**Report revision:** 18 October 2026  
+**Purpose:** Map the repository's available evidence to the six research objectives and hypotheses H01–H03 without presenting old output snapshots as newly computed results.
 
-## Important reporting note
+## Critical status: the saved numerical outputs are not current
 
-The saved files are not fully synchronized: `dashboard_summary.json` reports 44 conjunctions from a 70-object run, while the saved probability/prediction tables contain a smaller set of rows (the CSV snapshots show 22 conjunction records). The report below keeps these results separate rather than combining them into one unsupported total. Before submitting a final paper, rerun the pipeline once and export all tables and summaries from that same run.
+The latest repository commits focus on the CDM Historical Validation Workbench, object-ID matching, and pair/TCA diagnostics. The committed result artifacts have not been regenerated with those changes. In particular:
+
+- `results/dashboard_summary.json` still describes an older 70-object run with 44 conjunctions and 947,614 propagated state points.
+- `data/processed/conjunctions.csv` and `results/predictions.csv` contain 22 conjunction records, not 44.
+- The saved conjunction TCAs are from late August to early September 2026, so they are not a current 30-day forecast as of this report date.
+- The current dashboard code exposes a live-refresh action that rebuilds outputs from the saved orbital catalog, but a successful post-change refresh result is not recorded in the repository files inspected for this report.
+- The CDM workbench is now designed to compare unordered object pairs and TCA within a configurable tolerance (10 minutes by default), report unmatched pairs and time differences, and check whether covariance fields are present. A workbench feature is not itself a completed validation result.
+
+**Therefore, this report does not label the old conjunction counts as current system performance.** A fresh run and a saved export from that same run are required before current conjunction counts, risk counts, or accuracy percentages can be reported.
+
+## Current repository changes relevant to the research
+
+The latest code changes include:
+- NORAD catalog IDs are preferred when matching CDM objects; international designators are not treated as interchangeable with NORAD IDs.
+- Object-pair matching is order-independent.
+- The CDM validation page reports pair overlap, TCA-range overlap, TCA deltas, event-match status, reported Pc, and covariance-field availability.
+- The covariance importer distinguishes a Pc-only reference export from a file containing flattened position-covariance fields. It validates covariance blocks but explicitly does not yet use them to calculate collision probability.
+- The overview separates **HIGH collision-probability events** from **HIGH ORION-X response-priority events**. A response-priority score is not a collision probability.
+
+These changes improve diagnostics and interpretability, but they do not by themselves establish detection accuracy or validate the collision-probability model.
 
 ## Objective 1 — Estimate collision probability from relative motion, orbital parameters, uncertainty, and simulated collision states
 
-The software calculates conjunction geometry using propagated orbital states and reports relative velocity, miss distance, altitude difference, inclination difference, and object-specific modeled uncertainty values in the saved prediction tables. The saved data-quality report describes a separate 60-object input snapshot: 30 debris and 30 satellites; eccentricity ranged from 0.0000371 to 0.10243452, inclination from 24.969° to 107.9611°, and TLE age averaged 6.14 days (range 2.14–136.79 days).
+The committed prediction and Monte Carlo artifacts are older snapshots, not current forecast results. In those files, the 22 rows in `results/monte_carlo_results.csv` each record 1,000,000 samples and zero collision hits. The corresponding empirical Monte Carlo estimate is therefore zero for each row, but zero observed hits does not prove a true probability of zero. The stored 95% upper bound is approximately (2.996\times10^{-6}) for one million trials with zero hits.
 
-In the saved Monte Carlo table, each listed conjunction used 1,000,000 samples and recorded zero collision hits. Therefore, the empirical estimate was (0/1{,}000{,}000 = 0) for each listed event. This does **not** prove that true collision probability is zero. With zero hits in one million independent samples, the saved one-sided 95% upper bound is approximately (2.996\times10^{-6}), which is also present in the results. The analytical model produced nonzero probabilities for the same events, generally in the very-low-probability range (for example, (8.39\times10^{-7}) for ORBCOMM FM06–SCD 2).
+The stored `results/qae_results.csv` uses an amplified/scaled QAE estimate. Its first row reports a target probability of approximately (1.0074\times10^{-9}), a scaled QAE estimate of approximately (9.9798\times10^{-10}), and 4,096 shots. These are historical benchmark values from the committed file, not a fresh live-run measurement.
 
-**Finding:** The system produces the requested inputs and probability estimates, but the available results do not establish calibrated real-world probability accuracy. The uncertainty values are modeled estimates, not verified object-specific CDM covariance for every event. The orbital-parameter report should be treated as contextual analysis, not proof that every parameter independently improves Pc accuracy.
+The uncertainty columns in the saved prediction table are modeled values. The repository's covariance-import code can inspect compatible covariance fields, but the code itself notes that a validated position-covariance block is not yet enough to replace the collision-probability model: frame/time handling, encounter-plane transformation, hard-body assumptions, and CDM conventions still need to be handled.
+
+**Current finding:** The project implements the relevant calculation and diagnostic workflow. Current real-world probability accuracy remains unverified until a fresh forecast is run and compared with matched CDM records using suitable covariance data.
 
 ## Objective 2 — Evaluate conjunction detection
 
-The saved dashboard summary reports:
-- Tracked objects: 70
-- Propagated state points: 947,614
-- Detected close approaches: 44
-- Minimum miss distance: 18.1959 km
-- Mean miss distance: 48.7363 km
-- Collision-pair types: 19 debris–satellite, 16 satellite–satellite, and 9 debris–debris
-- Probability-based classes in that snapshot: 44 LOW, 0 MEDIUM, 0 HIGH
+The old dashboard snapshot reports 70 objects, 947,614 propagated points, and 44 close approaches. The committed conjunction and prediction tables contain 22 records. Because these outputs disagree, neither count should be presented as the current, reconciled result.
 
-The separate saved conjunction-distance distribution records 1 pair at 5–10 km, 1 at 10–20 km, 10 at 20–50 km, and 10 at 50–100 km. This distribution appears to correspond to the smaller saved prediction table rather than the 44-event dashboard summary, so it must not be used to overwrite the dashboard counts.
+The current validation workflow is designed to evaluate events using:
+1. Matching object pairs by catalog IDs without depending on object order.
+2. Comparing TCA values using a stated tolerance.
+3. Reporting events with matching pairs but TCA outside the tolerance separately from events with no pair match.
+4. Checking whether the CDM and ORION-X TCA ranges overlap.
 
-The percentage below the configured collision-probability thresholds cannot be responsibly reported as a validated detection-success percentage without a defined ground-truth set of true conjunctions and missed events. In the dashboard snapshot, all 44 detected events were labeled LOW, i.e. 100% were below the system's MEDIUM/HIGH probability thresholds; this is a classification output, **not** a sensitivity, precision, or accuracy score.
-
-**Finding:** Close approaches were detected and minimum miss distances were reported. Detection accuracy remains unproven because the saved summary does not provide a complete independently verified list of true positives, false negatives, and false positives over the same evaluation interval.
+**Current finding:** The latest code supports more auditable event matching, but a current detection-success percentage cannot yet be reported from the committed artifacts. Precision, recall, false-positive rate, and false-negative rate require a completed comparison against a verified reference set covering the same time interval.
 
 ## Objective 3 — Compare Quantum Amplitude Estimation (QAE) with classical Monte Carlo
 
-### Saved live/conjunction comparison
+The committed hypothesis-test artifact records a paired Wilcoxon signed-rank test with (n=540), (p=0.0170), and (alpha=0.05). It reports median absolute error of approximately (7.946\times10^{-6}) for QAE and (1.613\times10^{-4}) for Monte Carlo in that saved benchmark.
 
-In the saved `qae_results.csv`, the listed conjunctions have zero Monte Carlo hits from 1,000,000 samples, so their raw MC estimate is zero. The saved QAE implementation uses probability scaling/amplitude amplification for very small target probabilities. For the first listed row, the analytic target is (1.0074\times10^{-9}), the scaled QAE estimate is (9.9798\times10^{-10}), and its reported absolute error against that target is (9.4450\times10^{-12}). The same row records 4,096 QAE shots and about 0.916 seconds for QAE versus about 0.00112 seconds for the model execution field. These timings are from this saved run and are not evidence of a quantum speedup; the implementation runs on a simulator and includes overhead that differs from the classical sampling path.
+**Decision for the saved benchmark only:** Reject H02 for that benchmark because the reported paired errors differ significantly, with a lower reported median error for QAE.
 
-The separate `qae_comparison.csv` snapshot shows both QAE and Monte Carlo returning zero for several extremely small probabilities, while the analytic target is nonzero. This illustrates the finite-sample limitation of raw Monte Carlo and also shows why results from different benchmark configurations must not be mixed.
-
-### Controlled paired benchmark and H02
-
-The repository's saved hypothesis-test file reports 540 paired trials and a two-sided Wilcoxon signed-rank test: statistic = 64,380; (p=0.0170); (alpha=0.05). It reports median absolute error of (7.9460\times10^{-6}) for QAE and (1.6129\times10^{-4}) for Monte Carlo in that benchmark. Under that benchmark's stated test, **reject H02**: the errors differ significantly, with lower median error for QAE.
-
-**Qualification:** This statistical conclusion applies to the saved paired benchmark, not automatically to the live conjunction table. The accuracy sweep contains synthetic known probabilities, and the QAE simulator's theoretical query complexity must be distinguished from wall-clock performance. The available evidence does not show that QAE is faster on the current classical simulator.
+This is not a result from a fresh live conjunction run. It also does not establish quantum speedup: the committed QAE implementation is simulator-based, and the stored wall-clock times include different computational paths and overhead. Do not claim that QAE is faster in operational use from these results.
 
 ## Objective 4 — Compare QKD and classical data transmission
 
-The saved `benchmark_summary.json` reports 50 trials per condition:
+The saved `results/benchmark_summary.json` contains 50 trials per condition:
 
-| Metric | Classical ECDH + AES-GCM | QKD, honest channel | QKD, simulated intercept-resend |
-|---|---:|---:|---:|
-| Message delivery rate | 100% (50/50) | 100% (50/50) | 100% (50/50 transport; not secure acceptance) |
-| Mean protocol/runtime | 0.00428 s | 0.04495 s | 0.09339 s |
-| Mean communication overhead | 194 public-key bytes exchanged | 256 qubits + 575.92 classical bits | 512 qubits + 575.52 classical bits |
-| Mean QBER | Not applicable | 0% | 26.29% |
-| Secure delivery rate | Not measured as QKD | 100% | 0% |
-| Simulated interception detection | No built-in QKD-style QBER detection mechanism | 0% false alarms in 50 honest trials | 100% (50/50) |
+| Stored benchmark condition | Delivery rate | Mean runtime | Other recorded result |
+|---|---:|---:|---|
+| Classical ECDH + AES-GCM | 100% (50/50) | 0.00428 s | 194 bytes mean public-key overhead |
+| QKD, honest channel | 100% (50/50) | 0.04495 s | 0% mean QBER; 100% secure delivery |
+| QKD, simulated intercept-resend | 100% transport delivery | 0.09339 s | 26.29% mean QBER; 0% secure delivery; 100% interception detection (50/50) |
 
-The separate single-run JSON records 512 transmitted qubits for an honest run, 1,024 for its intercepted run, and successful message round-trip verification. These are different run settings from the 50-trial benchmark (256 and 512 mean qubits), so the figures should be reported as separate experiments.
+These are stored simulation benchmarks and have not been re-run by the latest CDM code changes. The saved hypothesis-test artifact reports no significant delivery-rate difference between classical transmission and honest QKD ((p=1.00)). It reports a significant difference between QKD's simulated interception detection and its honest-channel false-positive rate ((p\approx1.98\times10^{-29})).
 
-The saved statistical report says delivery rates did not differ between classical and honest QKD (Fisher's exact test (p=1.00)). It reports a significant difference between QKD's detection in the simulated intercept-resend condition and its honest-channel false-positive rate ((p\approx1.98\times10^{-29})). It also cautions that classical transmission's “0 detection” is the absence of a QKD-style detection mechanism by design, not a measured classical detector failure.
+The classical method has no built-in QBER-style detection mechanism in this comparison, so its “zero detections” is not an empirically measured detector failure. The comparison is also a software simulation, not a physical quantum communication experiment.
 
-**Finding:** In this simulation, both methods delivered messages reliably under normal conditions. Classical transmission had lower runtime and lower reported setup overhead. QKD detected the simulated interception pattern and rejected secure delivery when the QBER was high. These are software-simulation results, not a demonstration of a physical quantum communication link or proof that QKD is universally superior.
+**Decision:** Interpret H03 by metric. The saved benchmark found no delivery-rate difference, while QKD detected the simulated intercept-resend condition. Do not make one blanket claim that QKD outperforms classical transmission across all metrics.
 
 ## Objective 5 — Classify conjunctions as High, Medium, or Low
 
-The saved dashboard snapshot classifies all 44 events as LOW under its probability-based classifier. The saved `predictions.csv` likewise labels the listed rows LOW in both probability-based and composite-priority fields. No MEDIUM or HIGH event appears in those saved outputs.
+The old saved dashboard shows 44 LOW collision-probability labels and no MEDIUM or HIGH collision-probability labels. The older prediction table also labels its 22 rows LOW. These are old outputs and should not be used as the current classification distribution.
 
-The current classification logic distinguishes collision probability from a separate composite response-priority score. That score uses miss distance, relative velocity, uncertainty, and orbital geometry; it is a prioritization aid, not collision probability. The available saved rows show modeled altitude and inclination differences, but they do not provide enough synchronized evidence to establish the exact time-to-closest-approach threshold performance for every event.
+The current dashboard code explicitly separates the count of HIGH collision-probability events from the count of HIGH ORION-X response-priority events. It also warns when events cannot reach the configured HIGH probability threshold under the current assumed uncertainty values. This distinction is important: response priority is a separate ranking, not a substitute collision probability, and thresholds must not be changed merely to force HIGH labels.
 
-**Finding:** The system applies the LOW/MEDIUM/HIGH labels, but the current saved results do not demonstrate successful detection of known high-risk cases. All-LOW output may reflect the probability/uncertainty model and configured thresholds rather than proof that the orbital environment contains no high-risk conjunctions. This objective requires a defined threshold table and validation against independently sourced CDM/ground-truth events.
+**Current finding:** The latest code improves the reporting distinction, but the current distribution of risk labels is unknown until the outputs are regenerated and saved from a single run. The absence of a HIGH label must not be interpreted as proof that no high-risk conjunction exists.
 
 ## Objective 6 — Prioritize debris for removal using risk, collision probability, and consequence
 
-The available outputs do not justify claiming that any object is a confirmed removal target: all listed conjunctions are labeled LOW and their sampled collision counts are zero. A defensible prototype ranking can only identify **candidates for further review**, not prescribe removal. For a removal-priority list, rank confirmed nonfunctional debris using (1) validated conjunction/collision risk, (2) orbit and object-removal feasibility, and (3) consequence such as repeated encounters with active spacecraft and relative encounter speed. Do not prioritize an object solely because it appears in a close-approach pair, and do not treat an active satellite as debris.
+No current validated debris-removal target list is present in the repository evidence reviewed for this report. A close approach alone is not sufficient to recommend removal. A defensible preliminary ranking should consider confirmed nonfunctional debris status, validated risk, repeated encounters and consequences for active spacecraft, and feasibility of capture and removal. Active operational satellites must not be classified as debris or recommended for removal.
 
-The saved dashboard's closest pair was IRIDIUM 33 DEB (NORAD 33866) and COSMOS 2251 DEB (NORAD 33766), with a reported miss distance of 18.1959 km and relative speed of 4.4697 km/s at the reported TCA. This is a candidate for orbital-risk review, **not** a validated removal recommendation. Its miss distance is not a collision, and its TCA in the saved snapshot is historical.
+The old dashboard's closest-pair record is a historical observation and must not be presented as a current removal recommendation.
 
-**Finding:** ORION-X can support preliminary screening and ranking, but the current saved data are insufficient to establish a validated debris-removal priority list. Such a list needs synchronized current orbital data, object status confirmation, consistent event outputs, consequence criteria, and removal-feasibility constraints.
+**Current finding:** ORION-X can support preliminary screening, but a defensible current removal-priority list requires synchronized current orbital data, verified object status, current conjunction outputs, transparent consequence criteria, and removal-feasibility constraints.
 
 ## Hypothesis decisions
 
-| Hypothesis | Evidence in saved outputs | Decision / interpretation |
+| Hypothesis | Evidence currently available | Responsible conclusion |
 |---|---|---|
-| H01: ORION-X could not accurately detect and classify LEO conjunctions under predefined criteria. | 44 events detected in the dashboard snapshot; all labeled LOW. No complete independent ground-truth event set or false-negative count is included in that summary. | **Inconclusive from the available saved results.** Do not claim H01 is rejected until detection/classification performance is tested against a verified reference set. |
-| H02: No significant difference between QAE and classical Monte Carlo collision-probability estimates. | Paired benchmark (n=540), Wilcoxon (p=0.0170<0.05); reported QAE median error is lower. | **Reject H02 for the saved paired benchmark.** State that this does not demonstrate faster wall-clock execution or live operational superiority. |
-| H03: No significant difference between QKD and classical data transmission. | Delivery rate 100% for both in 50 trials ((p=1.00)); QKD intercept-resend detection 50/50 and honest false alarms 0/50. Classical ECDH/AES has no equivalent QBER detection mechanism. | **Partially reject / refine H03.** No delivery-rate difference was found; a difference was found for simulated interception detection, but that comparison is not like-for-like because classical transmission lacks the same detection mechanism. If H03 is intended to cover all four metrics as one hypothesis, report separate tests per metric rather than a single blanket decision. |
+| **H01:** ORION-X could not accurately detect and classify LEO conjunctions under predefined criteria. | The committed output snapshots conflict (44 dashboard events versus 22 table rows). A newer CDM matching workflow exists, but no completed, current matched-event export is recorded in the inspected files. | **Inconclusive.** Do not reject H01 until a fresh run is evaluated against verified reference events over the same interval and false positives/negatives are counted. |
+| **H02:** There is no significant difference between QAE and Monte Carlo estimates. | Saved paired benchmark: (n=540), Wilcoxon (p=0.0170<0.05), with lower reported median error for QAE. | **Reject for the saved benchmark only.** This does not establish live-run superiority or wall-clock speedup. |
+| **H03:** There is no significant difference between QKD and classical transmission. | Saved benchmark: both honest-channel delivery rates are 100% ((p=1.00)); QKD detected 50/50 simulated intercept-resend trials with 0/50 honest-channel false alarms. | **Metric-specific / partial conclusion.** No delivery-rate difference was found; QKD's simulated interception-detection result is significant, but classical transmission does not have an equivalent detector in this benchmark. |
 
-## Overall conclusion
+## What is needed before the report can contain current numerical results
 
-The saved repository results show that ORION-X implements a pipeline for conjunction screening, collision-probability estimation, QAE-versus-Monte-Carlo experiments, risk classification, and simulated secure-message transmission. The strongest quantitative evidence in the stored outputs is the 44-event dashboard snapshot, the million-sample Monte Carlo runs with zero observed hits and a nonzero upper confidence bound, the paired QAE benchmark with a statistically lower median error, and the QKD simulation's 50/50 detection of intercept-resend trials.
+1. Run **“Rebuild live results from orbital_data.csv”** in the current ORION-X dashboard and wait for the run to complete.
+2. Save the live-refresh summary, current orbital catalog epoch, object count, propagated-state count, conjunction count, prediction count, and separate HIGH Pc / HIGH response-priority counts from that same run.
+3. Export the CDM comparison using an ORION-X conjunction file covering the CDM's TCA interval. Record pair overlap, TCA-range overlap, matches within tolerance, pair matches outside tolerance, unmatched events, and reported-Pc comparisons.
+4. Record whether the uploaded CDM actually contains covariance fields. If it is Pc-only, use its reported Pc as reference data only; do not describe it as covariance validation.
+5. Regenerate the relevant tables from one run and update the hypothesis tests only with the data and test design that match each hypothesis.
 
-The results do **not** yet establish real-world collision-probability accuracy, validated conjunction-detection accuracy, operational quantum speedup, physical QKD security, or a final debris-removal target list. Synchronize the run outputs and validate against independent CDMs before presenting those claims.
-
-## Repository files used
+## Repository evidence inspected
 
 - `results/dashboard_summary.json`
-- `results/data_quality_report.json`
-- `results/monte_carlo_results.csv`
+- `data/processed/conjunctions.csv`
 - `results/predictions.csv`
+- `results/monte_carlo_results.csv`
 - `results/qae_results.csv`
-- `results/qae_comparison.csv`
-- `results/qae_accuracy_sweep.csv`
 - `results/hypothesis_test_results.json`
 - `results/benchmark_summary.json`
-- `results/classical_security_results.json`
 - `results/qkd_results.json`
-- `results/conjunction_pairs_vs_miss_distance.csv`
+- `ui/dashboard.py`
+- `ui/historical_live_dashboard.py`
+- `pages/2_CDM_Historical_Validation.py`
+- `modules/cdm_covariance.py`
+
+**Bottom line:** The repository has newer validation and diagnostic code, but the saved numerical outputs remain old and internally inconsistent. This revision makes that status explicit instead of relabeling the old numbers as current. A genuinely current results report must be completed from a fresh run and its matching CDM export.
