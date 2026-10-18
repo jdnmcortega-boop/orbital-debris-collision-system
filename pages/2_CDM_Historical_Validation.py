@@ -77,6 +77,25 @@ def pair_set(frame, a_col, b_col):
     return pairs
 
 
+def find_id_source_column(columns, sat):
+    """Mirror the ID precedence used by modules.cdm_covariance."""
+    candidates = [
+        f"SAT_{sat}_NORAD_ID", f"SAT{sat}_NORAD_ID",
+        f"SAT_{sat}_NORAD_CAT_ID", f"SAT{sat}_NORAD_CAT_ID",
+        f"SAT_{sat}_ID", f"SAT{sat}_ID",
+        f"OBJECT{sat}_NORAD_CAT_ID",
+        f"SAT{sat}_OBJECT_DESIGNATOR", f"SAT_{sat}_OBJECT_DESIGNATOR",
+        f"SAT{sat}_OBJECT", f"SAT_{sat}_OBJECT",
+        f"OBJECT{sat}_OBJECT_DESIGNATOR",
+    ]
+    lookup = {str(col).strip().upper().replace("-", "_").replace(" ", "_"): col for col in columns}
+    for candidate in candidates:
+        key = candidate.upper()
+        if key in lookup:
+            return lookup[key]
+    return None
+
+
 if cdm_upload is not None:
     try:
         cdm = load_cdm_csv(cdm_upload)
@@ -88,6 +107,8 @@ if cdm_upload is not None:
             if "CDM_REPORTED_PC" in cdm_validation else 0
         )
         cov_present = has_position_covariance_fields(cdm.columns)
+        cdm_id_col1 = find_id_source_column(cdm.columns, 1)
+        cdm_id_col2 = find_id_source_column(cdm.columns, 2)
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("CDM records", f"{len(cdm):,}")
@@ -100,6 +121,26 @@ if cdm_upload is not None:
             + (f"{cdm_tca.min():%Y-%m-%d %H:%M UTC} to {cdm_tca.max():%Y-%m-%d %H:%M UTC}" if not cdm_tca.empty else "Unavailable")
         )
         st.write(f"**Records with reported Pc:** {int(pc_count):,}")
+
+        with st.expander("Inspect source columns and object-ID samples", expanded=True):
+            st.write("**CDM ID columns selected by the parser**")
+            st.write(f"Object 1: `{cdm_id_col1 or 'NOT FOUND'}`")
+            st.write(f"Object 2: `{cdm_id_col2 or 'NOT FOUND'}`")
+            st.caption(
+                "Catalog IDs (usually numeric NORAD IDs) should be used for matching when available. "
+                "International designators such as 1997-051A are a different identifier type."
+            )
+            sample = cdm.head(12).copy()
+            sample_view = pd.DataFrame({
+                "CDM source row": sample["_CDM_SOURCE_ROW"],
+                "Selected object 1 column": sample[cdm_id_col1] if cdm_id_col1 else "",
+                "Parsed object 1 ID": sample["_CDM_OBJECT1"],
+                "Selected object 2 column": sample[cdm_id_col2] if cdm_id_col2 else "",
+                "Parsed object 2 ID": sample["_CDM_OBJECT2"],
+                "TCA": sample["_CDM_TCA"],
+            })
+            st.dataframe(sample_view, width="stretch", hide_index=True)
+
         if not cov_present:
             st.info(
                 "This export has no recognized flattened RTN position-covariance fields. "
@@ -128,6 +169,28 @@ if cdm_upload is not None:
                     "**ORION-X TCA range:** "
                     + (f"{orion_tca.min():%Y-%m-%d %H:%M UTC} to {orion_tca.max():%Y-%m-%d %H:%M UTC}" if orion_tca.notna().any() else "Unavailable")
                 )
+
+                with st.expander("Inspect ORION-X IDs and pair overlap", expanded=not bool(shared_pairs)):
+                    st.write("**ORION-X identifier columns:** `NORAD_A`, `NORAD_B`")
+                    st.dataframe(
+                        orion[["NORAD_A", "NORAD_B", "TCA"]].head(12),
+                        width="stretch",
+                        hide_index=True,
+                    )
+                    st.write("**Example normalized object pairs**")
+                    cdm_pair_examples = sorted(cdm_pairs)[:10]
+                    orion_pair_examples = sorted(orion_pairs)[:10]
+                    x, y = st.columns(2)
+                    with x:
+                        st.caption("CDM pairs")
+                        st.dataframe(pd.DataFrame(cdm_pair_examples, columns=["Object 1", "Object 2"]), width="stretch", hide_index=True)
+                    with y:
+                        st.caption("ORION-X pairs")
+                        st.dataframe(pd.DataFrame(orion_pair_examples, columns=["Object 1", "Object 2"]), width="stretch", hide_index=True)
+                    st.caption(
+                        f"Shared pairs: {len(shared_pairs):,}. Pair matching ignores object order, "
+                        "but does not treat international designators as equivalent to NORAD catalog IDs."
+                    )
 
                 if not shared_pairs:
                     st.error(
