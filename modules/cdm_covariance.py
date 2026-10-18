@@ -73,19 +73,22 @@ def _normalize_id(value):
 
 
 def _object_id(row, columns, sat):
+    # Prefer numeric catalog identifiers when present. International
+    # designators (e.g. 1997-051A) are not interchangeable with NORAD IDs.
+    # Only fall back to designators if the source has no catalog-ID column.
     candidates = [
+        f"SAT_{sat}_NORAD_ID",
+        f"SAT{sat}_NORAD_ID",
+        f"SAT_{sat}_NORAD_CAT_ID",
+        f"SAT{sat}_NORAD_CAT_ID",
+        f"SAT_{sat}_ID",
+        f"SAT{sat}_ID",
+        f"OBJECT{sat}_NORAD_CAT_ID",
         f"SAT{sat}_OBJECT_DESIGNATOR",
         f"SAT_{sat}_OBJECT_DESIGNATOR",
         f"SAT{sat}_OBJECT",
         f"SAT_{sat}_OBJECT",
-        f"SAT_{sat}_ID",
-        f"SAT{sat}_ID",
-        f"SAT_{sat}_NORAD_ID",
-        f"SAT{sat}_NORAD_CAT_ID",
         f"OBJECT{sat}_OBJECT_DESIGNATOR",
-        f"OBJECT{sat}_NORAD_CAT_ID",
-        f"SAT{sat}_NORAD_CAT_ID",
-        f"SAT{sat}_NORAD_ID",
     ]
     col = _find_column(columns, candidates)
     if col is None:
