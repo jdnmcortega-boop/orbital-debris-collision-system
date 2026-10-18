@@ -78,6 +78,7 @@ def _github_credentials():
         "ORION_GITHUB_REPOSITORY",
         "jdnmcortega-boop/orbital-debris-collision-system",
     ).strip()
+    branch = os.getenv("ORION_GITHUB_RESULTS_BRANCH", "live-results").strip()
     if not token:
         try:
             import streamlit as st
@@ -85,12 +86,45 @@ def _github_credentials():
             repository = str(
                 st.secrets.get("ORION_GITHUB_REPOSITORY", repository)
             ).strip()
+            branch = str(
+                st.secrets.get("ORION_GITHUB_RESULTS_BRANCH", branch)
+            ).strip()
         except Exception:
             pass
-    return token, repository
+    return token, repository, branch
 
 
-def _put_github_file(repository, token, path, content):
+def _ensure_github_branch(repository, token, branch):
+    """Create the results branch once, based on main, to avoid redeploy loops."""
+    base = f"https://api.github.com/repos/{repository}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "ORION-X-live-results-publisher",
+    }
+    try:
+        req = Request(f"{base}/git/ref/heads/{branch}", headers=headers, method="GET")
+        with urlopen(req, timeout=15):
+            return
+    except HTTPError as exc:
+        if exc.code != 404:
+            raise
+    req = Request(f"{base}/git/ref/heads/main", headers=headers, method="GET")
+    with urlopen(req, timeout=15) as response:
+        main_ref = json.loads(response.read().decode("utf-8"))
+    payload = {"ref": f"refs/heads/{branch}", "sha": main_ref["object"]["sha"]}
+    req = Request(
+        f"{base}/git/refs",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={**headers, "Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(req, timeout=15):
+        return
+
+
+def _put_github_file(repository, token, branch, path, content):
     """Create/update one file using GitHub's Contents API without exposing the token."""
     url = f"https://api.github.com/repos/{repository}/contents/{path}"
     headers = {
@@ -111,7 +145,7 @@ def _put_github_file(repository, token, path, content):
     payload = {
         "message": f"Update live ORION-X research results: {Path(path).name}",
         "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
-        "branch": "main",
+        "branch": branch,
     }
     if existing_sha:
         payload["sha"] = existing_sha
@@ -126,21 +160,24 @@ def _put_github_file(repository, token, path, content):
 
 
 def _publish_live_artifacts(paths):
-    token, repository = _github_credentials()
+    token, repository, branch = _github_credentials()
     if not token:
         return {
             "status": "not_configured",
             "repository": repository,
+            "branch": branch,
             "published_files": [],
             "message": "Live files were generated in the app runtime. Add ORION_GITHUB_TOKEN to Streamlit secrets to publish them to GitHub automatically.",
         }
     published = []
     commits = []
     try:
+        _ensure_github_branch(repository, token, branch)
         for path in paths:
             commit_sha = _put_github_file(
                 repository,
                 token,
+                branch,
                 f"results/{Path(path).name}",
                 Path(path).read_text(encoding="utf-8"),
             )
@@ -150,6 +187,7 @@ def _publish_live_artifacts(paths):
         return {
             "status": "published",
             "repository": repository,
+            "branch": branch,
             "published_files": published,
             "latest_commit_sha": commits[-1] if commits else None,
         }
@@ -158,6 +196,7 @@ def _publish_live_artifacts(paths):
         return {
             "status": "failed",
             "repository": repository,
+            "branch": branch,
             "published_files": published,
             "error": f"{type(exc).__name__}: {exc}",
             "message": "Files were generated locally, but automatic GitHub publishing did not finish. Check token permissions and Streamlit logs.",
@@ -451,5 +490,6 @@ def build_live_research_artifacts(fresh_df, propagated, conjunctions, analytic_r
         "hypothesis_results": str(out / "hypothesis_results_live.json"),
         "research_report": str(out / "research_results_live.md"),
         "objectives_report": str(out / "results_by_research_objectives.md"),
+        "github_publish": publish_status,
         "generated_at_utc": now,
     }
