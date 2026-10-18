@@ -328,12 +328,17 @@ def build_live_research_artifacts(fresh_df, propagated, conjunctions, analytic_r
     _write_json(out / "live_run_summary.json", live_summary)
     _write_json(out / "objective_results_live.json", objectives)
     _write_json(out / "hypothesis_results_live.json", hypotheses)
-    (out / "research_results_live.md").write_text("\n".join(lines), encoding="utf-8")
+    report_text = "\n".join(lines)
+    (out / "research_results_live.md").write_text(report_text, encoding="utf-8")
+    # Keep the established report path current too, so the GitHub report link
+    # reflects the most recent successful live refresh.
+    (out / "results_by_research_objectives.md").write_text(report_text, encoding="utf-8")
 
     return {
         "live_run_summary": str(out / "live_run_summary.json"),
         "objective_results": str(out / "objective_results_live.json"),
         "hypothesis_results": str(out / "hypothesis_results_live.json"),
         "research_report": str(out / "research_results_live.md"),
+        "objectives_report": str(out / "results_by_research_objectives.md"),
         "generated_at_utc": now,
     }
