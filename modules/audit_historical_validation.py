@@ -34,7 +34,7 @@ def main() -> None:
         raise ValueError(f"Validation CSV missing required columns: {missing}")
 
     for col in ("SNAPSHOT_TIME", "TLE_EPOCH_A", "TLE_EPOCH_B", "FORECAST_TCA", "COARSE_BASELINE_TCA", "ACTUAL_EVENT_TIME"):
-        df[col] = pd.to_datetime(df[col], utc=True, errors="raise")
+        df[col] = pd.to_datetime(df[col], utc=True, errors="raise", format="ISO8601")
 
     df["TLE_AGE_A_DAYS"] = (df["SNAPSHOT_TIME"] - df["TLE_EPOCH_A"]).dt.total_seconds() / 86400
     df["TLE_AGE_B_DAYS"] = (df["SNAPSHOT_TIME"] - df["TLE_EPOCH_B"]).dt.total_seconds() / 86400
