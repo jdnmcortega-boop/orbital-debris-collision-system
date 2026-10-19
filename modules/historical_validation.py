@@ -269,6 +269,12 @@ def run_historical_validation(
                 "TLE_EPOCH_B": epoch_b.isoformat(),
                 "FORECAST_HORIZON_DAYS": int(forecast_horizon_days),
                 "FORECAST_TCA": forecast_tca.isoformat(),
+                "FORECAST_TCA_OFFSET_FROM_EVENT_HOURS": (
+                    forecast_tca - event.event_time_utc
+                ).total_seconds() / 3600.0,
+                "FORECAST_TCA_AT_OR_BEFORE_EVENT": bool(
+                    forecast_tca <= event.event_time_utc
+                ),
                 "FORECAST_LEAD_TIME_DAYS": lead_time_days,
                 "FORECAST_MISS_DISTANCE_KM": forecast_miss,
                 "FORECAST_RELATIVE_VELOCITY_KM_S": forecast_velocity,
