@@ -9,6 +9,7 @@ on:
       - .github/workflows/historical-validation.yml
       - modules/historical_validation.py
       - modules/historical_replay.py
+      - modules/audit_historical_validation.py
       - modules/qae.py
       - modules/prediction.py
       - data/historical_events/iridium33_cosmos2251/historical_tles.3le
@@ -51,10 +52,19 @@ jobs:
             --qae-eval-qubits 6 \
             --qae-shots 200
 
-      - name: Upload historical validation CSV
+      - name: Audit historical validation outputs
+        run: |
+          python -m modules.audit_historical_validation \\
+            --input results/historical/iridium33_cosmos2251_validation.csv \\
+            --output results/historical/iridium33_cosmos2251_audit.json
+
+      - name: Upload historical validation and audit files
         uses: actions/upload-artifact@v4
         with:
           name: orion-x-historical-validation
-          path: results/historical/iridium33_cosmos2251_validation.csv
+          path: |
+            results/historical/iridium33_cosmos2251_validation.csv
+            results/historical/iridium33_cosmos2251_audit.json
+            results/historical/iridium33_cosmos2251_audit_rows.csv
           if-no-files-found: error
           retention-days: 30
