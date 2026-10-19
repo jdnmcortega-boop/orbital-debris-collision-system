@@ -41,6 +41,58 @@ def classify_risk(probability):
         return "LOW"
 
 
+def probability_model_diagnostics(sigma_a_km=None, sigma_b_km=None):
+    """Report whether configured Pc thresholds are reachable under the model.
+
+    This is a mathematical diagnostic, not a probability estimate. It uses the
+    same isotropic 2-D Gaussian assumption and hard-body radius as qae.py.
+    Missing object-specific sigmas fall back to the configured assumed sigma.
+    """
+    radius = float(getattr(config, "HARD_BODY_RADIUS_KM", 0.02))
+    fallback_sigma = float(getattr(config, "POSITION_UNCERTAINTY_KM", 10.0))
+
+    if sigma_a_km is None or sigma_b_km is None:
+        sigma_a = sigma_b = fallback_sigma
+        source = "CONFIGURED_ASSUMPTION"
+    else:
+        sigma_a = float(sigma_a_km)
+        sigma_b = float(sigma_b_km)
+        source = "ROW_OBJECT_SIGMAS"
+
+    if (
+        not np.isfinite(radius) or radius <= 0
+        or not np.isfinite(sigma_a) or sigma_a <= 0
+        or not np.isfinite(sigma_b) or sigma_b <= 0
+    ):
+        return {
+            "PC_MAX_AT_ZERO_MISS": np.nan,
+            "PC_MEDIUM_THRESHOLD_REACHABLE": False,
+            "PC_HIGH_THRESHOLD_REACHABLE": False,
+            "PC_MODEL_DIAGNOSTIC": "INVALID_RADIUS_OR_UNCERTAINTY",
+            "PC_UNCERTAINTY_SOURCE": source,
+        }
+
+    combined_sigma = np.sqrt(sigma_a**2 + sigma_b**2)
+    max_pc = float(-np.expm1(-(radius**2) / (2.0 * combined_sigma**2)))
+    medium_reachable = max_pc >= RISK_THRESHOLD_MEDIUM
+    high_reachable = max_pc >= RISK_THRESHOLD_HIGH
+
+    if not medium_reachable and not high_reachable:
+        status = "BOTH_MEDIUM_AND_HIGH_THRESHOLDS_UNREACHABLE"
+    elif not high_reachable:
+        status = "HIGH_THRESHOLD_UNREACHABLE"
+    else:
+        status = "THRESHOLDS_REACHABLE_AT_ZERO_MISS_ONLY_OR_ABOVE"
+
+    return {
+        "PC_MAX_AT_ZERO_MISS": max_pc,
+        "PC_MEDIUM_THRESHOLD_REACHABLE": bool(medium_reachable),
+        "PC_HIGH_THRESHOLD_REACHABLE": bool(high_reachable),
+        "PC_MODEL_DIAGNOSTIC": status,
+        "PC_UNCERTAINTY_SOURCE": source,
+    }
+
+
 # ============================================================
 # REFERENCE VELOCITY
 # ============================================================
@@ -523,6 +575,20 @@ def build_predictions(results_df):
     )
     # Backward-compatible alias. This field always means Pc-threshold risk.
     df["RISK_LEVEL"] = df["COLLISION_RISK_LEVEL"]
+
+    # Explicitly expose when the assumed uncertainty makes configured Pc
+    # categories mathematically unreachable. Do not silently relabel events
+    # HIGH to compensate; the priority classifier remains a separate output.
+    diagnostics = []
+    for _, row in df.iterrows():
+        sigma_a = row.get("SIGMA_A_KM")
+        sigma_b = row.get("SIGMA_B_KM")
+        if pd.isna(sigma_a) or pd.isna(sigma_b):
+            sigma_a = sigma_b = None
+        diagnostics.append(probability_model_diagnostics(sigma_a, sigma_b))
+    diagnostic_df = pd.DataFrame(diagnostics, index=df.index)
+    for column in diagnostic_df.columns:
+        df[column] = diagnostic_df[column]
 
     df["ORBITAL_GEOMETRY_FACTOR"] = df.apply(
         lambda r: orbital_geometry_factor(
