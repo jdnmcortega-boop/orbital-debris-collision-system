@@ -1,0 +1,18 @@
+{
+  "event_id": "CERISE_ARIANE",
+  "event_time_utc": "1996-07-24T09:48:03Z",
+  "object_a_norad": 23606,
+  "object_b_norad": 18208,
+  "status": "NOT_VERIFIED",
+  "source_url": "https://orbitaldebris.jsc.nasa.gov/quarterly-news/pdfs/ODQNV1i2.pdf",
+  "archive_path": null,
+  "record_level_availability_file": "data/historical_events/cerise_ariane/record_level_availability.csv",
+  "archive_retrieved_at_utc": null,
+  "original_archive_timestamp_utc": null,
+  "record_level_publication_timestamps_available": false,
+  "notes": [
+    "The NASA source supports event identity and approximate event time but is not a complete historical orbital-element archive.",
+    "Historical element records and their source creation/publication timestamps have not yet been obtained and matched.",
+    "Do not change status to VERIFIED until the source archive, record-level timestamps, object IDs, epoch coverage, and exact record matching have been checked."
+  ]
+}
