@@ -248,15 +248,17 @@ def run_qae(true_probability, num_eval_qubits=6, shots=200):
     qc.append(A.to_gate(), [state_reg[0]])
     qc.h(eval_reg)
 
+    # Keep controlled Grover operations as circuit gates. Do not call
+    # .power(2**k) on a controlled gate: Qiskit can turn that into a generic
+    # two-qubit unitary, whose Weyl decomposition fails for near-identity
+    # rotations (common when collision probabilities are extremely small).
+    controlled_Q = Q_gate.control(1)
     for k in range(m):
-        # Control first, then exponentiate: C(Q)^n = C(Q^n). This avoids
-        # Qiskit's unstable multi-qubit unitary decomposition when attempting
-        # to control the already-powered unitary (seen with tiny Pc values).
-        controlled_Q = Q_gate.control(1).power(2**k)
-        qc.append(
-            controlled_Q,
-            [eval_reg[k], state_reg[0]],
-        )
+        for _ in range(2**k):
+            qc.append(
+                controlled_Q,
+                [eval_reg[k], state_reg[0]],
+            )
 
     qc.append(QFTGate(m).inverse(), eval_reg)
     qc.measure(eval_reg, creg)
