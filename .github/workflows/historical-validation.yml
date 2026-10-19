@@ -10,10 +10,13 @@ on:
       - modules/historical_validation.py
       - modules/historical_replay.py
       - modules/audit_historical_validation.py
+      - modules/provenance_gate.py
       - modules/qae.py
       - modules/prediction.py
       - tests/test_probability_diagnostics.py
+      - tests/test_provenance_gate.py
       - data/historical_events/iridium33_cosmos2251/historical_tles.3le
+      - data/historical_events/iridium33_cosmos2251/provenance.json
       - config.py
       - requirements.txt
 
@@ -41,8 +44,8 @@ jobs:
           python -m pip install numpy pandas scipy sgp4 pytest
           python -m pip install qiskit==2.5.2 qiskit-aer==0.17.2
 
-      - name: Run collision-probability diagnostic tests
-        run: python -m pytest -q tests/test_probability_diagnostics.py
+      - name: Run probability and provenance gate tests
+        run: python -m pytest -q tests/test_probability_diagnostics.py tests/test_provenance_gate.py
 
       - name: Run archived Iridium 33–Cosmos 2251 replay
         run: |
@@ -58,6 +61,15 @@ jobs:
 
       - name: Audit historical validation outputs
         run: python -m modules.audit_historical_validation --input results/historical/iridium33_cosmos2251_validation.csv --output results/historical/iridium33_cosmos2251_audit.json --provenance-manifest data/historical_events/iridium33_cosmos2251/provenance.json
+
+      - name: Gate operational claims on record-level TLE availability evidence
+        run: |
+          python -m modules.provenance_gate \
+            --validation-csv results/historical/iridium33_cosmos2251_validation.csv \
+            --audit-json results/historical/iridium33_cosmos2251_audit.json \
+            --audit-rows-csv results/historical/iridium33_cosmos2251_audit_rows.csv \
+            --provenance-manifest data/historical_events/iridium33_cosmos2251/provenance.json \
+            --repo-root .
 
       - name: Upload historical validation and audit files
         uses: actions/upload-artifact@v4
