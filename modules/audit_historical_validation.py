@@ -104,6 +104,18 @@ def main() -> None:
             "median_miss_distance_km_refined": float(refined_miss.median()) if len(refined_miss.dropna()) else None,
             "rows_refinement_reduced_miss_distance": int((valid_pairs["refined_miss"] < valid_pairs["baseline_miss"]).sum()),
         },
+        "validation_interpretation": {
+            "study_design": "RETROSPECTIVE_SINGLE_EVENT_DIAGNOSTIC",
+            "predictive_skill_claim_status": "NOT_ESTABLISHED",
+            "reasons": [
+                "Only one known collision event is evaluated.",
+                "TLE element epochs do not prove when each record became available to an operator.",
+                "The forecast horizon includes the known event time, so a close forecast TCA is descriptive and does not alone establish operational advance-warning skill.",
+                "The coarse-grid comparison is a numerical-refinement diagnostic, not an independent predictor baseline."
+            ],
+            "pre_event_rows_only_for_lead_time_claims": True,
+            "event_time_row_excluded_from_pre_event_counts": True
+        },
         "input_csv": str(args.input),
         "tle_data_provenance": {
             "manifest_path": str(provenance_path) if provenance_path is not None else None,
