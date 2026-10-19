@@ -1,0 +1,53 @@
+{
+  "status": "PREPARED_NOT_VERIFIED",
+  "source": "Space-Track GP_HISTORY CSV export(s)",
+  "source_timestamp_field": "CREATION_DATE",
+  "timestamp_interpretation": "Space-Track record creation/publication timestamp; not proof of operator receipt or independent proof that this exact element record was used in the replay.",
+  "expected_norad_ids": [
+    24946,
+    22675
+  ],
+  "observed_norad_ids": [
+    22675,
+    24946
+  ],
+  "rows_after_deduplication": 36761,
+  "objects": {
+    "22675": {
+      "rows": 18332,
+      "earliest_tle_epoch_utc": "1993-06-16T05:41:48.126911Z",
+      "latest_tle_epoch_utc": "2026-10-18T22:26:07.560672Z",
+      "earliest_creation_date_utc": "2004-05-19T21:08:27Z",
+      "latest_creation_date_utc": "2026-10-19T07:06:45Z"
+    },
+    "24946": {
+      "rows": 18429,
+      "earliest_tle_epoch_utc": "1997-09-14T06:09:43.224192Z",
+      "latest_tle_epoch_utc": "2026-10-18T23:30:36.194112Z",
+      "earliest_creation_date_utc": "2004-05-19T21:08:27Z",
+      "latest_creation_date_utc": "2026-10-19T02:22:42Z"
+    }
+  },
+  "input_files": [
+    {
+      "file": "iridium33_gp_history.csv",
+      "rows": 20083,
+      "norad_ids": [
+        24946
+      ]
+    },
+    {
+      "file": "cosmos2251_gp_history.csv",
+      "rows": 19041,
+      "norad_ids": [
+        22675
+      ]
+    }
+  ],
+  "availability_csv": "data/historical_events/iridium33_cosmos2251/record_level_availability.csv",
+  "verification_requirements": [
+    "Retain original source CSV exports and document each query and retrieval time.",
+    "Confirm selected NORAD_CAT_ID + TLE_EPOCH records match the exact TLEs used in the replay.",
+    "Keep provenance status NOT_VERIFIED until the evidence and limitations have been reviewed."
+  ]
+}
