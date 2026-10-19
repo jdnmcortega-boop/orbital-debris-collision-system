@@ -136,6 +136,53 @@ def forecast_closest_approach(
     return best_time, best_distance, best_relative_velocity
 
 
+
+def forecast_closest_approach_coarse_grid(
+    sat_a,
+    sat_b,
+    start_time: datetime,
+    end_time: datetime,
+    step_minutes: int = 30,
+):
+    """Reference baseline: select the minimum separation on the fixed coarse grid.
+
+    This is a numerical-resolution baseline, not an independent orbit predictor:
+    it uses the same frozen TLE pair, SGP4 propagator, and forecast window as the
+    refined method, but does not optimize between grid points.
+    """
+    if step_minutes <= 0:
+        raise ValueError("step_minutes must be positive")
+    if end_time < start_time:
+        raise ValueError("end_time must not be earlier than start_time")
+
+    step = timedelta(minutes=step_minutes)
+    current = start_time
+    best_time = start_time
+    best_distance = float("inf")
+    best_relative_velocity = float("nan")
+
+    while current <= end_time:
+        pos_a, vel_a = propagate_satellite(sat_a, current)
+        pos_b, vel_b = propagate_satellite(sat_b, current)
+        distance = float(np.linalg.norm(pos_a - pos_b))
+        if distance < best_distance:
+            best_time = current
+            best_distance = distance
+            best_relative_velocity = float(np.linalg.norm(vel_a - vel_b))
+        current += step
+
+    if current - step != end_time:
+        pos_a, vel_a = propagate_satellite(sat_a, end_time)
+        pos_b, vel_b = propagate_satellite(sat_b, end_time)
+        distance = float(np.linalg.norm(pos_a - pos_b))
+        if distance < best_distance:
+            best_time = end_time
+            best_distance = distance
+            best_relative_velocity = float(np.linalg.norm(vel_a - vel_b))
+
+    return best_time, best_distance, best_relative_velocity
+
+
 def forecast_proximity_alert_level(miss_distance_km: float) -> str:
     """Classify forecast proximity separately from collision probability."""
     distance = abs(float(miss_distance_km))
@@ -221,6 +268,16 @@ def run_historical_validation(
             step_minutes=forecast_step_minutes,
         )
 
+        # Same-data coarse-grid reference baseline. This isolates the value of
+        # sub-grid TCA refinement; it is not an independent predictive benchmark.
+        baseline_tca, baseline_miss, baseline_velocity = forecast_closest_approach_coarse_grid(
+            sat_a,
+            sat_b,
+            snapshot,
+            snapshot + timedelta(days=forecast_horizon_days),
+            step_minutes=forecast_step_minutes,
+        )
+
         analytic_pc = analytic_collision_probability(
             forecast_miss,
             sigma_km=sigma_km,
@@ -298,6 +355,17 @@ def run_historical_validation(
                 "FORECAST_TCA_GRID_STEP_MINUTES": int(forecast_step_minutes),
                 "FORECAST_TCA_REFINEMENT_METHOD": "bounded_scalar_minimization_within_one_grid_step",
                 "FORECAST_TCA": forecast_tca.isoformat(),
+                "COARSE_BASELINE_TCA": baseline_tca.isoformat(),
+                "COARSE_BASELINE_TCA_OFFSET_FROM_EVENT_HOURS": (
+                    baseline_tca - event.event_time_utc
+                ).total_seconds() / 3600.0,
+                "COARSE_BASELINE_MISS_DISTANCE_KM": baseline_miss,
+                "COARSE_BASELINE_RELATIVE_VELOCITY_KM_S": baseline_velocity,
+                "REFINEMENT_ABS_TCA_OFFSET_IMPROVEMENT_SECONDS": (
+                    abs((baseline_tca - event.event_time_utc).total_seconds())
+                    - abs((forecast_tca - event.event_time_utc).total_seconds())
+                ),
+                "REFINEMENT_MISS_DISTANCE_CHANGE_KM": baseline_miss - forecast_miss,
                 "FORECAST_TCA_OFFSET_FROM_EVENT_HOURS": (
                     forecast_tca - event.event_time_utc
                 ).total_seconds() / 3600.0,
