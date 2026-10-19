@@ -1,0 +1,102 @@
+"""Audit the historical-validation CSV without changing forecast outputs.
+
+This checks timestamp consistency and TLE epoch freshness. TLE epoch is only a
+proxy for data freshness; it does not prove when an element set was published.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--max-tca-offset-hours", type=float, default=1.0)
+    args = parser.parse_args()
+
+    df = pd.read_csv(args.input)
+    required = {
+        "SNAPSHOT_TIME", "DAYS_BEFORE_EVENT", "TLE_EPOCH_A", "TLE_EPOCH_B",
+        "FORECAST_TCA", "ACTUAL_EVENT_TIME", "FORECAST_TCA_OFFSET_FROM_EVENT_HOURS",
+        "FORECAST_MISS_DISTANCE_KM", "FORECAST_PROXIMITY_ALERT_LEVEL",
+        "ANALYTIC_RISK_LEVEL", "PREDICTION_TIME_IS_PRE_EVENT",
+    }
+    missing = sorted(required - set(df.columns))
+    if missing:
+        raise ValueError(f"Validation CSV missing required columns: {missing}")
+
+    for col in ("SNAPSHOT_TIME", "TLE_EPOCH_A", "TLE_EPOCH_B", "FORECAST_TCA", "ACTUAL_EVENT_TIME"):
+        df[col] = pd.to_datetime(df[col], utc=True, errors="raise")
+
+    df["TLE_AGE_A_DAYS"] = (df["SNAPSHOT_TIME"] - df["TLE_EPOCH_A"]).dt.total_seconds() / 86400
+    df["TLE_AGE_B_DAYS"] = (df["SNAPSHOT_TIME"] - df["TLE_EPOCH_B"]).dt.total_seconds() / 86400
+    df["TLE_EPOCHS_NOT_AFTER_SNAPSHOT"] = (
+        (df["TLE_AGE_A_DAYS"] >= 0) & (df["TLE_AGE_B_DAYS"] >= 0)
+    )
+    df["TCA_OFFSET_RECALCULATED_HOURS"] = (
+        (df["FORECAST_TCA"] - df["ACTUAL_EVENT_TIME"]).dt.total_seconds() / 3600
+    )
+    df["TCA_OFFSET_COLUMN_MATCHES"] = np.isclose(
+        df["TCA_OFFSET_RECALCULATED_HOURS"],
+        pd.to_numeric(df["FORECAST_TCA_OFFSET_FROM_EVENT_HOURS"]),
+        atol=1e-5,
+        rtol=0,
+    )
+    pre = df[df["PREDICTION_TIME_IS_PRE_EVENT"].astype(str).str.lower().isin(["true", "1"])]
+    alerts = pre[pre["FORECAST_PROXIMITY_ALERT_LEVEL"].isin(["HIGH", "MEDIUM"])]
+
+    report = {
+        "input_csv": str(args.input),
+        "row_count": int(len(df)),
+        "event_time_utc": df["ACTUAL_EVENT_TIME"].iloc[0].isoformat() if len(df) else None,
+        "all_tle_epochs_not_after_snapshot": bool(df["TLE_EPOCHS_NOT_AFTER_SNAPSHOT"].all()),
+        "future_epoch_row_count": int((~df["TLE_EPOCHS_NOT_AFTER_SNAPSHOT"]).sum()),
+        "max_tle_age_a_days": float(df["TLE_AGE_A_DAYS"].max()),
+        "max_tle_age_b_days": float(df["TLE_AGE_B_DAYS"].max()),
+        "min_tle_age_a_days": float(df["TLE_AGE_A_DAYS"].min()),
+        "min_tle_age_b_days": float(df["TLE_AGE_B_DAYS"].min()),
+        "tca_offset_column_matches_recalculation": bool(df["TCA_OFFSET_COLUMN_MATCHES"].all()),
+        "tca_offset_mismatch_rows": int((~df["TCA_OFFSET_COLUMN_MATCHES"]).sum()),
+        "rows_with_tca_within_configured_offset_hours": int(
+            (df["TCA_OFFSET_RECALCULATED_HOURS"].abs() <= args.max_tca_offset_hours).sum()
+        ),
+        "configured_tca_offset_tolerance_hours": args.max_tca_offset_hours,
+        "pre_event_snapshot_count": int(len(pre)),
+        "pre_event_medium_or_high_proximity_alert_count": int(len(alerts)),
+        "first_high_proximity_alert_days_before_event": (
+            float(pre.loc[pre["FORECAST_PROXIMITY_ALERT_LEVEL"] == "HIGH", "DAYS_BEFORE_EVENT"].max())
+            if (pre["FORECAST_PROXIMITY_ALERT_LEVEL"] == "HIGH").any() else None
+        ),
+        "first_medium_proximity_alert_days_before_event": (
+            float(pre.loc[pre["FORECAST_PROXIMITY_ALERT_LEVEL"] == "MEDIUM", "DAYS_BEFORE_EVENT"].max())
+            if (pre["FORECAST_PROXIMITY_ALERT_LEVEL"] == "MEDIUM").any() else None
+        ),
+        "pre_event_analytic_medium_or_high_warning_count": int(
+            pre["ANALYTIC_RISK_LEVEL"].isin(["MEDIUM", "HIGH"]).sum()
+        ),
+        "scientific_limitations": [
+            "A TLE epoch at or before a snapshot does not prove the TLE was publicly available by that snapshot; publication/archive timestamps are needed.",
+            "A forecast TCA near the known event time is not sufficient by itself to prove predictive skill.",
+            "Collision probability uses the configured model assumptions and should not be treated as empirically validated without object-specific covariance.",
+        ],
+    }
+
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    detail_path = args.output.with_name(args.output.stem + "_rows.csv")
+    df.to_csv(detail_path, index=False)
+
+    print("Historical validation audit")
+    print(json.dumps(report, indent=2))
+    print(f"Audit JSON: {args.output}")
+    print(f"Audit rows: {detail_path}")
+
+
+if __name__ == "__main__":
+    main()
