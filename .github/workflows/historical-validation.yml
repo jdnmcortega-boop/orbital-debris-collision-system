@@ -53,7 +53,7 @@ jobs:
             --qae-shots 200
 
       - name: Audit historical validation outputs
-        run: python -m modules.audit_historical_validation --input results/historical/iridium33_cosmos2251_validation.csv --output results/historical/iridium33_cosmos2251_audit.json
+        run: python -m modules.audit_historical_validation --input results/historical/iridium33_cosmos2251_validation.csv --output results/historical/iridium33_cosmos2251_audit.json --provenance-manifest data/historical_events/iridium33_cosmos2251/provenance.json
 
       - name: Upload historical validation and audit files
         uses: actions/upload-artifact@v4
