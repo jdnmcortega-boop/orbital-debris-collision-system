@@ -23,6 +23,7 @@ state is never used to construct the forecast.
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -75,14 +76,21 @@ def forecast_closest_approach(
     if end_time < start_time:
         raise ValueError("end_time must not be earlier than start_time")
 
-    best_time = start_time
+    step = timedelta(minutes=step_minutes)
+    step_seconds = step_minutes * 60
+    # Anchor samples to a fixed UTC epoch grid, not to each snapshot. Since
+    # snapshots are event-time-aligned, a snapshot-anchored grid can repeatedly
+    # place the known event timestamp exactly on the coarse grid.
+    first_tick = math.ceil(start_time.timestamp() / step_seconds) * step_seconds
+    last_tick = math.floor(end_time.timestamp() / step_seconds) * step_seconds
+    current = datetime.fromtimestamp(first_tick, tz=timezone.utc)
+    last_grid_time = datetime.fromtimestamp(last_tick, tz=timezone.utc)
+
+    best_time = current
     best_distance = float("inf")
     best_relative_velocity = float("nan")
 
-    current = start_time
-    step = timedelta(minutes=step_minutes)
-
-    while current <= end_time:
+    while current <= last_grid_time:
         pos_a, vel_a = propagate_satellite(sat_a, current)
         pos_b, vel_b = propagate_satellite(sat_b, current)
 
@@ -95,17 +103,6 @@ def forecast_closest_approach(
             best_relative_velocity = relative_velocity
 
         current += step
-
-    if current - step != end_time:
-        pos_a, vel_a = propagate_satellite(sat_a, end_time)
-        pos_b, vel_b = propagate_satellite(sat_b, end_time)
-        distance = float(np.linalg.norm(pos_a - pos_b))
-        relative_velocity = float(np.linalg.norm(vel_a - vel_b))
-
-        if distance < best_distance:
-            best_distance = distance
-            best_time = end_time
-            best_relative_velocity = relative_velocity
 
     # Refine the best coarse-grid point within one grid step on either side.
     # This avoids treating a sampled timestamp as the exact time of closest approach.
@@ -156,12 +153,19 @@ def forecast_closest_approach_coarse_grid(
         raise ValueError("end_time must not be earlier than start_time")
 
     step = timedelta(minutes=step_minutes)
-    current = start_time
-    best_time = start_time
+    step_seconds = step_minutes * 60
+    # Use the same fixed UTC epoch grid as the refined forecast. Do not inject
+    # start/end timestamps into the coarse grid: doing so reintroduces snapshot
+    # phase alignment and can make the known event time a guaranteed sample.
+    first_tick = math.ceil(start_time.timestamp() / step_seconds) * step_seconds
+    last_tick = math.floor(end_time.timestamp() / step_seconds) * step_seconds
+    current = datetime.fromtimestamp(first_tick, tz=timezone.utc)
+    last_grid_time = datetime.fromtimestamp(last_tick, tz=timezone.utc)
+    best_time = current
     best_distance = float("inf")
     best_relative_velocity = float("nan")
 
-    while current <= end_time:
+    while current <= last_grid_time:
         pos_a, vel_a = propagate_satellite(sat_a, current)
         pos_b, vel_b = propagate_satellite(sat_b, current)
         distance = float(np.linalg.norm(pos_a - pos_b))
@@ -170,15 +174,6 @@ def forecast_closest_approach_coarse_grid(
             best_distance = distance
             best_relative_velocity = float(np.linalg.norm(vel_a - vel_b))
         current += step
-
-    if current - step != end_time:
-        pos_a, vel_a = propagate_satellite(sat_a, end_time)
-        pos_b, vel_b = propagate_satellite(sat_b, end_time)
-        distance = float(np.linalg.norm(pos_a - pos_b))
-        if distance < best_distance:
-            best_time = end_time
-            best_distance = distance
-            best_relative_velocity = float(np.linalg.norm(vel_a - vel_b))
 
     return best_time, best_distance, best_relative_velocity
 
