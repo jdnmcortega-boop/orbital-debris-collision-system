@@ -91,7 +91,49 @@ def main() -> None:
         axis=1,
     ).dropna()
 
+    probability_diagnostics = {}
+    diagnostic_columns = {
+        "pc_max": "PC_MAX_AT_ZERO_MISS_UNDER_ASSUMED_SIGMA",
+        "high_threshold": "HIGH_PC_THRESHOLD",
+        "high_reachable": "HIGH_THRESHOLD_REACHABLE_UNDER_ASSUMED_SIGMA",
+    }
+    if all(column in df.columns for column in diagnostic_columns.values()):
+        pc_max_values = pd.to_numeric(
+            df[diagnostic_columns["pc_max"]], errors="coerce"
+        ).dropna()
+        high_threshold_values = pd.to_numeric(
+            df[diagnostic_columns["high_threshold"]], errors="coerce"
+        ).dropna()
+        high_reachable_values = (
+            df[diagnostic_columns["high_reachable"]]
+            .astype(str).str.lower().isin(["true", "1"])
+        )
+        probability_diagnostics = {
+            "model": "ISOTROPIC_2D_GAUSSIAN_ASSUMPTION",
+            "uncertainty_interpretation": (
+                "Configured/assumed sigma, not verified object-specific covariance."
+            ),
+            "max_pc_at_zero_miss_min": (
+                float(pc_max_values.min()) if len(pc_max_values) else None
+            ),
+            "max_pc_at_zero_miss_max": (
+                float(pc_max_values.max()) if len(pc_max_values) else None
+            ),
+            "high_pc_threshold": (
+                float(high_threshold_values.iloc[0])
+                if len(high_threshold_values) else None
+            ),
+            "high_threshold_reachable_rows": int(high_reachable_values.sum()),
+            "high_threshold_unreachable_rows": int((~high_reachable_values).sum()),
+            "interpretation": (
+                "Reachability is a mathematical diagnostic under the assumed model; "
+                "it does not establish empirical probability calibration and must not "
+                "be used to force a desired risk label."
+            ),
+        }
+
     report = {
+        "collision_probability_model_diagnostics": probability_diagnostics,
         "coarse_grid_baseline": {
             "definition": "Same frozen TLE pair, SGP4 propagator, and forecast window; minimum separation sampled on a fixed UTC-epoch-aligned grid without sub-grid optimization. Grid samples are not anchored to the event-aligned snapshot.",
             "comparison_scope": "Numerical refinement diagnostic only; not an independent orbital-prediction baseline.",
