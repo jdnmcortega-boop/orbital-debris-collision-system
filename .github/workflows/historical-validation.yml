@@ -7,6 +7,13 @@ on:
       - main
     paths:
       - .github/workflows/historical-validation.yml
+      - modules/historical_validation.py
+      - modules/historical_replay.py
+      - modules/qae.py
+      - modules/prediction.py
+      - data/historical_events/iridium33_cosmos2251/historical_tles.3le
+      - config.py
+      - requirements.txt
 
 permissions:
   contents: read
