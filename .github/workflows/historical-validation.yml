@@ -1,0 +1,44 @@
+name: Historical ORION-X Validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install validation dependencies
+        run: python -m pip install --upgrade pip numpy pandas scipy sgp4
+
+      - name: Run archived Iridium 33–Cosmos 2251 replay
+        run: |
+          python -m modules.historical_validation \
+            --tle data/historical_events/iridium33_cosmos2251/historical_tles.3le \
+            --output results/historical/iridium33_cosmos2251_validation.csv \
+            --rewind-days 30 \
+            --snapshot-step-hours 24 \
+            --forecast-step-minutes 30 \
+            --qae-eval-qubits 6 \
+            --qae-shots 200
+
+      - name: Upload historical validation CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: orion-x-historical-validation
+          path: results/historical/iridium33_cosmos2251_validation.csv
+          if-no-files-found: error
+          retention-days: 30
