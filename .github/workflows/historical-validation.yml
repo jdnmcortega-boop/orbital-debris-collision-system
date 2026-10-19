@@ -2,6 +2,11 @@ name: Historical ORION-X Validation
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/historical-validation.yml
 
 permissions:
   contents: read
