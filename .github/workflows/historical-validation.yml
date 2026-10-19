@@ -11,14 +11,17 @@ on:
       - modules/historical_replay.py
       - modules/audit_historical_validation.py
       - modules/audit_historical_event_catalog.py
+      - modules/build_tle_availability.py
       - modules/provenance_gate.py
       - modules/qae.py
       - modules/prediction.py
       - tests/test_probability_diagnostics.py
       - tests/test_provenance_gate.py
       - tests/test_historical_event_catalog.py
+      - tests/test_build_tle_availability.py
       - data/historical_events/events.csv
       - data/historical_events/README.md
+      - data/historical_events/cerise_ariane/**
       - data/historical_events/iridium33_cosmos2251/historical_tles.3le
       - data/historical_events/iridium33_cosmos2251/provenance.json
       - config.py
@@ -48,12 +51,13 @@ jobs:
           python -m pip install numpy pandas scipy sgp4 pytest
           python -m pip install qiskit==2.5.2 qiskit-aer==0.17.2
 
-      - name: Run probability, provenance, and event-catalog tests
+      - name: Run probability, provenance, event-catalog, and availability tests
         run: |
           python -m pytest -q \
             tests/test_probability_diagnostics.py \
             tests/test_provenance_gate.py \
-            tests/test_historical_event_catalog.py
+            tests/test_historical_event_catalog.py \
+            tests/test_build_tle_availability.py
 
       - name: Audit historical event catalog readiness
         run: |
