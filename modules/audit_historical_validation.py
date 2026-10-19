@@ -18,7 +18,15 @@ def main() -> None:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--max-tca-offset-hours", type=float, default=1.0)
+    parser.add_argument("--provenance-manifest", type=Path, default=None)
     args = parser.parse_args()
+
+    provenance_path = args.provenance_manifest
+    provenance = {}
+    if provenance_path is not None:
+        if not provenance_path.is_file():
+            raise FileNotFoundError(f"Provenance manifest not found: {provenance_path}")
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
 
     df = pd.read_csv(args.input)
     required = {
@@ -97,6 +105,15 @@ def main() -> None:
             "rows_refinement_reduced_miss_distance": int((valid_pairs["refined_miss"] < valid_pairs["baseline_miss"]).sum()),
         },
         "input_csv": str(args.input),
+        "tle_data_provenance": {
+            "manifest_path": str(provenance_path) if provenance_path is not None else None,
+            "status": provenance.get("status", "NOT_ASSESSED"),
+            "source_url": provenance.get("source_url"),
+            "archive_retrieved_at_utc": provenance.get("archive_retrieved_at_utc"),
+            "original_archive_timestamp_utc": provenance.get("original_archive_timestamp_utc"),
+            "record_level_publication_timestamps_available": provenance.get("record_level_publication_timestamps_available"),
+            "interpretation": "TLE epoch checks establish only that element epochs are not later than each snapshot; they do not establish when those records became available to an operator.",
+        },
         "row_count": int(len(df)),
         "event_time_utc": df["ACTUAL_EVENT_TIME"].iloc[0].isoformat() if len(df) else None,
         "all_tle_epochs_not_after_snapshot": bool(df["TLE_EPOCHS_NOT_AFTER_SNAPSHOT"].all()),
@@ -131,7 +148,7 @@ def main() -> None:
             pre["ANALYTIC_RISK_LEVEL"].isin(["MEDIUM", "HIGH"]).sum()
         ),
         "scientific_limitations": [
-            "A TLE epoch at or before a snapshot does not prove the TLE was publicly available by that snapshot; publication/archive timestamps are needed.",
+            "The TLE provenance manifest records whether source and archive-availability evidence is documented. A TLE epoch at or before a snapshot does not prove the TLE was publicly available by that snapshot; publication/archive timestamps are needed.",
             "A forecast TCA near the known event time is not sufficient by itself to prove predictive skill.",
             "The coarse-grid comparison measures only the effect of sub-grid numerical refinement; it is not an independent predictive baseline. Grid samples are UTC-epoch-aligned to avoid making the event timestamp a guaranteed sample simply because snapshots share its time of day.",
             "Miss-distance summaries and their rank correlation are descriptive for this single event, not a validated skill score or independent baseline comparison.",
