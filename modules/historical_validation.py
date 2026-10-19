@@ -70,7 +70,13 @@ def forecast_closest_approach(
     end_time: datetime,
     step_minutes: int = 30,
 ):
-    """Forecast closest approach using only the TLE pair known at start_time."""
+    """Forecast closest approach using only the TLE pair known at start_time.
+
+    Sample a fixed UTC grid, identify every sampled local minimum, and refine
+    each local-minimum bracket. Refining only the globally smallest grid sample
+    can miss a narrow conjunction between grid points when a different,
+    broader encounter has a smaller sampled distance.
+    """
     if step_minutes <= 0:
         raise ValueError("step_minutes must be positive")
     if end_time < start_time:
@@ -78,38 +84,54 @@ def forecast_closest_approach(
 
     step = timedelta(minutes=step_minutes)
     step_seconds = step_minutes * 60
-    # Anchor samples to a fixed UTC epoch grid, not to each snapshot. Since
-    # snapshots are event-time-aligned, a snapshot-anchored grid can repeatedly
-    # place the known event timestamp exactly on the coarse grid.
     first_tick = math.ceil(start_time.timestamp() / step_seconds) * step_seconds
     last_tick = math.floor(end_time.timestamp() / step_seconds) * step_seconds
-    current = datetime.fromtimestamp(first_tick, tz=timezone.utc)
-    last_grid_time = datetime.fromtimestamp(last_tick, tz=timezone.utc)
+    grid_times = []
+    tick = first_tick
+    while tick <= last_tick:
+        grid_times.append(datetime.fromtimestamp(tick, tz=timezone.utc))
+        tick += step_seconds
 
-    best_time = current
-    best_distance = float("inf")
-    best_relative_velocity = float("nan")
+    # Include forecast-window boundaries as boundaries only; do not insert the
+    # known collision time or any event-derived timestamp into the sample grid.
+    sample_times = [start_time]
+    sample_times.extend(t for t in grid_times if start_time < t < end_time)
+    if end_time > start_time:
+        sample_times.append(end_time)
 
-    while current <= last_grid_time:
-        pos_a, vel_a = propagate_satellite(sat_a, current)
-        pos_b, vel_b = propagate_satellite(sat_b, current)
+    distances = []
+    velocities = []
+    for sample_time in sample_times:
+        pos_a, vel_a = propagate_satellite(sat_a, sample_time)
+        pos_b, vel_b = propagate_satellite(sat_b, sample_time)
+        distances.append(float(np.linalg.norm(pos_a - pos_b)))
+        velocities.append(float(np.linalg.norm(vel_a - vel_b)))
 
-        distance = float(np.linalg.norm(pos_a - pos_b))
-        relative_velocity = float(np.linalg.norm(vel_a - vel_b))
+    best_index = int(np.argmin(distances))
+    best_time = sample_times[best_index]
+    best_distance = distances[best_index]
+    best_relative_velocity = velocities[best_index]
 
-        if distance < best_distance:
-            best_distance = distance
-            best_time = current
-            best_relative_velocity = relative_velocity
+    # Refine every sampled local minimum, not just the globally smallest grid
+    # sample. This is important for short, high-relative-speed encounters.
+    candidate_indices = []
+    for i in range(1, len(sample_times) - 1):
+        if distances[i] <= distances[i - 1] and distances[i] <= distances[i + 1]:
+            candidate_indices.append(i)
 
-        current += step
+    # Also refine edge minima over their available one-sided intervals.
+    if len(sample_times) >= 2:
+        if distances[0] <= distances[1]:
+            candidate_indices.append(0)
+        if distances[-1] <= distances[-2]:
+            candidate_indices.append(len(sample_times) - 1)
 
-    # Refine the best coarse-grid point within one grid step on either side.
-    # This avoids treating a sampled timestamp as the exact time of closest approach.
-    lower_time = max(start_time, best_time - step)
-    upper_time = min(end_time, best_time + step)
+    for i in candidate_indices:
+        lower_time = sample_times[max(0, i - 1)]
+        upper_time = sample_times[min(len(sample_times) - 1, i + 1)]
+        if upper_time <= lower_time:
+            continue
 
-    if upper_time > lower_time:
         def distance_at_offset(offset_seconds: float) -> float:
             candidate_time = lower_time + timedelta(seconds=float(offset_seconds))
             pos_a, _ = propagate_satellite(sat_a, candidate_time)
@@ -123,7 +145,7 @@ def forecast_closest_approach(
             method="bounded",
             options={"xatol": 0.1},
         )
-        if refined.success and np.isfinite(refined.fun):
+        if refined.success and np.isfinite(refined.fun) and float(refined.fun) < best_distance:
             best_time = lower_time + timedelta(seconds=float(refined.x))
             best_distance = float(refined.fun)
             _, vel_a = propagate_satellite(sat_a, best_time)
@@ -131,7 +153,6 @@ def forecast_closest_approach(
             best_relative_velocity = float(np.linalg.norm(vel_a - vel_b))
 
     return best_time, best_distance, best_relative_velocity
-
 
 
 def forecast_closest_approach_coarse_grid(
