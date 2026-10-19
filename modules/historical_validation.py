@@ -29,6 +29,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize_scalar
 
 import config
 
@@ -105,6 +106,32 @@ def forecast_closest_approach(
             best_distance = distance
             best_time = end_time
             best_relative_velocity = relative_velocity
+
+    # Refine the best coarse-grid point within one grid step on either side.
+    # This avoids treating a sampled timestamp as the exact time of closest approach.
+    lower_time = max(start_time, best_time - step)
+    upper_time = min(end_time, best_time + step)
+
+    if upper_time > lower_time:
+        def distance_at_offset(offset_seconds: float) -> float:
+            candidate_time = lower_time + timedelta(seconds=float(offset_seconds))
+            pos_a, _ = propagate_satellite(sat_a, candidate_time)
+            pos_b, _ = propagate_satellite(sat_b, candidate_time)
+            return float(np.linalg.norm(pos_a - pos_b))
+
+        interval_seconds = (upper_time - lower_time).total_seconds()
+        refined = minimize_scalar(
+            distance_at_offset,
+            bounds=(0.0, interval_seconds),
+            method="bounded",
+            options={"xatol": 0.1},
+        )
+        if refined.success and np.isfinite(refined.fun):
+            best_time = lower_time + timedelta(seconds=float(refined.x))
+            best_distance = float(refined.fun)
+            _, vel_a = propagate_satellite(sat_a, best_time)
+            _, vel_b = propagate_satellite(sat_b, best_time)
+            best_relative_velocity = float(np.linalg.norm(vel_a - vel_b))
 
     return best_time, best_distance, best_relative_velocity
 
@@ -268,6 +295,8 @@ def run_historical_validation(
                 "OBJECT_B": name_b,
                 "TLE_EPOCH_B": epoch_b.isoformat(),
                 "FORECAST_HORIZON_DAYS": int(forecast_horizon_days),
+                "FORECAST_TCA_GRID_STEP_MINUTES": int(forecast_step_minutes),
+                "FORECAST_TCA_REFINEMENT_METHOD": "bounded_scalar_minimization_within_one_grid_step",
                 "FORECAST_TCA": forecast_tca.isoformat(),
                 "FORECAST_TCA_OFFSET_FROM_EVENT_HOURS": (
                     forecast_tca - event.event_time_utc
