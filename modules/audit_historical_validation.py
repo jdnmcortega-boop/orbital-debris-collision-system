@@ -85,7 +85,7 @@ def main() -> None:
 
     report = {
         "coarse_grid_baseline": {
-            "definition": "Same frozen TLE pair, SGP4 propagator, and forecast window; minimum separation sampled every configured grid step without sub-grid optimization.",
+            "definition": "Same frozen TLE pair, SGP4 propagator, and forecast window; minimum separation sampled on a fixed UTC-epoch-aligned grid without sub-grid optimization. Grid samples are not anchored to the event-aligned snapshot.",
             "comparison_scope": "Numerical refinement diagnostic only; not an independent orbital-prediction baseline.",
             "pre_event_rows_compared": int(len(valid_pairs)),
             "median_absolute_tca_error_hours_coarse": float(baseline_offset.median()) if len(baseline_offset.dropna()) else None,
@@ -133,7 +133,7 @@ def main() -> None:
         "scientific_limitations": [
             "A TLE epoch at or before a snapshot does not prove the TLE was publicly available by that snapshot; publication/archive timestamps are needed.",
             "A forecast TCA near the known event time is not sufficient by itself to prove predictive skill.",
-            "The coarse-grid comparison measures only the effect of sub-grid numerical refinement; it is not an independent predictive baseline.",
+            "The coarse-grid comparison measures only the effect of sub-grid numerical refinement; it is not an independent predictive baseline. Grid samples are UTC-epoch-aligned to avoid making the event timestamp a guaranteed sample simply because snapshots share its time of day.",
             "Miss-distance summaries and their rank correlation are descriptive for this single event, not a validated skill score or independent baseline comparison.",
             "Collision probability uses the configured model assumptions and should not be treated as empirically validated without object-specific covariance.",
         ],
