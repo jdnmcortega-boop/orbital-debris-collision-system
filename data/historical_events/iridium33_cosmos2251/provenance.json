@@ -1,0 +1,14 @@
+{
+  "event_id": "iridium33_cosmos2251",
+  "archive_path": "data/historical_events/iridium33_cosmos2251/historical_tles.3le",
+  "status": "NOT_VERIFIED",
+  "source_url": null,
+  "archive_retrieved_at_utc": null,
+  "original_archive_timestamp_utc": null,
+  "record_level_publication_timestamps_available": false,
+  "notes": [
+    "The repository contains TLE epochs but no verified per-record publication or first-availability timestamps.",
+    "Do not treat TLE epoch as proof that a record was available to an operator at that time.",
+    "Update this manifest only when supported by a source record, archive metadata, or a reproducible retrieval log."
+  ]
+}
