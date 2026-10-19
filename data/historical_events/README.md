@@ -54,3 +54,20 @@ The replay engine produces one state row per object per timestamp and a pair-lev
 ## Event status
 
 Only events with authoritative confirmation and sufficient pre-event orbital data should be used for quantitative backtesting. A catalog entry can remain present while its status is needs_archival_tle or NOT_VERIFIED. Neither a successful propagation nor a close forecast TCA proves operational predictive skill. That requires verified data availability, an independent baseline, and multiple events.
+
+
+## Preparing the Space-Track GP_HISTORY exports
+
+The helper `modules/prepare_spacetrack_provenance.py` combines the downloaded CSV exports for Iridium 33 (NORAD **24946**) and Cosmos 2251 (NORAD **22675**). It checks that both objects are present, parses `EPOCH` and `CREATION_DATE`, deduplicates repeated object/epoch records using the earliest recorded creation timestamp, and writes a compact availability table plus a JSON coverage report.
+
+After you have saved both original CSVs locally, run:
+
+```bash
+python -m modules.prepare_spacetrack_provenance \
+  --input-csv path/to/iridium33_gp_history.csv \
+  --input-csv path/to/cosmos2251_gp_history.csv \
+  --output-csv data/historical_events/iridium33_cosmos2251/record_level_availability.csv \
+  --report-json data/historical_events/iridium33_cosmos2251/spacetrack_coverage_report.json
+```
+
+Do not upload account credentials or cookies. Keep the source CSVs unchanged and record the query URL and retrieval time in your research notes. The helper deliberately reports `PREPARED_NOT_VERIFIED`: `CREATION_DATE` records when Space-Track created/published a record, but does not by itself prove an operator received it, nor that the exact element record matches the TLE selected in the replay. Do not change the event provenance manifest to `VERIFIED` based only on generating this table. Confirm record matches and document the limits first.
