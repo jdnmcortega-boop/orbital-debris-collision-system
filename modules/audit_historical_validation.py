@@ -25,13 +25,15 @@ def main() -> None:
         "SNAPSHOT_TIME", "DAYS_BEFORE_EVENT", "TLE_EPOCH_A", "TLE_EPOCH_B",
         "FORECAST_TCA", "ACTUAL_EVENT_TIME", "FORECAST_TCA_OFFSET_FROM_EVENT_HOURS",
         "FORECAST_MISS_DISTANCE_KM", "FORECAST_PROXIMITY_ALERT_LEVEL",
+        "COARSE_BASELINE_TCA", "COARSE_BASELINE_TCA_OFFSET_FROM_EVENT_HOURS",
+        "COARSE_BASELINE_MISS_DISTANCE_KM",
         "ANALYTIC_RISK_LEVEL", "PREDICTION_TIME_IS_PRE_EVENT",
     }
     missing = sorted(required - set(df.columns))
     if missing:
         raise ValueError(f"Validation CSV missing required columns: {missing}")
 
-    for col in ("SNAPSHOT_TIME", "TLE_EPOCH_A", "TLE_EPOCH_B", "FORECAST_TCA", "ACTUAL_EVENT_TIME"):
+    for col in ("SNAPSHOT_TIME", "TLE_EPOCH_A", "TLE_EPOCH_B", "FORECAST_TCA", "COARSE_BASELINE_TCA", "ACTUAL_EVENT_TIME"):
         df[col] = pd.to_datetime(df[col], utc=True, errors="raise")
 
     df["TLE_AGE_A_DAYS"] = (df["SNAPSHOT_TIME"] - df["TLE_EPOCH_A"]).dt.total_seconds() / 86400
@@ -71,7 +73,29 @@ def main() -> None:
     else:
         miss_distance_days_spearman = None
 
+    baseline_offset = pd.to_numeric(pre["COARSE_BASELINE_TCA_OFFSET_FROM_EVENT_HOURS"], errors="coerce").abs()
+    refined_offset = pd.to_numeric(pre["TCA_OFFSET_RECALCULATED_HOURS"], errors="coerce").abs()
+    baseline_miss = pd.to_numeric(pre["COARSE_BASELINE_MISS_DISTANCE_KM"], errors="coerce")
+    refined_miss = pd.to_numeric(pre["FORECAST_MISS_DISTANCE_KM"], errors="coerce")
+    valid_pairs = pd.concat(
+        [baseline_offset.rename("baseline_offset"), refined_offset.rename("refined_offset"),
+         baseline_miss.rename("baseline_miss"), refined_miss.rename("refined_miss")],
+        axis=1,
+    ).dropna()
+
     report = {
+        "coarse_grid_baseline": {
+            "definition": "Same frozen TLE pair, SGP4 propagator, and forecast window; minimum separation sampled every configured grid step without sub-grid optimization.",
+            "comparison_scope": "Numerical refinement diagnostic only; not an independent orbital-prediction baseline.",
+            "pre_event_rows_compared": int(len(valid_pairs)),
+            "median_absolute_tca_error_hours_coarse": float(baseline_offset.median()) if len(baseline_offset.dropna()) else None,
+            "median_absolute_tca_error_hours_refined": float(refined_offset.median()) if len(refined_offset.dropna()) else None,
+            "rows_refinement_reduced_absolute_tca_error": int((valid_pairs["refined_offset"] < valid_pairs["baseline_offset"]).sum()),
+            "rows_refinement_increased_absolute_tca_error": int((valid_pairs["refined_offset"] > valid_pairs["baseline_offset"]).sum()),
+            "median_miss_distance_km_coarse": float(baseline_miss.median()) if len(baseline_miss.dropna()) else None,
+            "median_miss_distance_km_refined": float(refined_miss.median()) if len(refined_miss.dropna()) else None,
+            "rows_refinement_reduced_miss_distance": int((valid_pairs["refined_miss"] < valid_pairs["baseline_miss"]).sum()),
+        },
         "input_csv": str(args.input),
         "row_count": int(len(df)),
         "event_time_utc": df["ACTUAL_EVENT_TIME"].iloc[0].isoformat() if len(df) else None,
@@ -109,6 +133,7 @@ def main() -> None:
         "scientific_limitations": [
             "A TLE epoch at or before a snapshot does not prove the TLE was publicly available by that snapshot; publication/archive timestamps are needed.",
             "A forecast TCA near the known event time is not sufficient by itself to prove predictive skill.",
+            "The coarse-grid comparison measures only the effect of sub-grid numerical refinement; it is not an independent predictive baseline.",
             "Miss-distance summaries and their rank correlation are descriptive for this single event, not a validated skill score or independent baseline comparison.",
             "Collision probability uses the configured model assumptions and should not be treated as empirically validated without object-specific covariance.",
         ],
