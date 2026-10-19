@@ -40,6 +40,7 @@ jobs:
             --rewind-days 30 \
             --snapshot-step-hours 24 \
             --forecast-step-minutes 30 \
+            --forecast-horizon-days 35 \
             --qae-eval-qubits 6 \
             --qae-shots 200
 
