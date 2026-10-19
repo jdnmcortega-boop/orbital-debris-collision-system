@@ -51,6 +51,26 @@ def main() -> None:
     pre = df[df["PREDICTION_TIME_IS_PRE_EVENT"].astype(str).str.lower().isin(["true", "1"])]
     alerts = pre[pre["FORECAST_PROXIMITY_ALERT_LEVEL"].isin(["HIGH", "MEDIUM"])]
 
+    # Descriptive forecast diagnostics only. These summaries describe this replay;
+    # they are not a standalone measure of predictive skill because the known event
+    # time is evaluation ground truth, not independent evidence of historical TLE availability.
+    proximity_counts = {
+        str(level): int(count)
+        for level, count in pre["FORECAST_PROXIMITY_ALERT_LEVEL"].value_counts(dropna=False).items()
+    }
+    miss_distance = pd.to_numeric(pre["FORECAST_MISS_DISTANCE_KM"], errors="coerce").dropna()
+    tca_abs_offset_hours = pre["TCA_OFFSET_RECALCULATED_HOURS"].abs().dropna()
+    if len(pre) >= 2:
+        miss_distance_days_spearman = float(
+            pre[["DAYS_BEFORE_EVENT", "FORECAST_MISS_DISTANCE_KM"]]
+            .dropna()
+            .rank(method="average")
+            .corr()
+            .iloc[0, 1]
+        )
+    else:
+        miss_distance_days_spearman = None
+
     report = {
         "input_csv": str(args.input),
         "row_count": int(len(df)),
@@ -69,6 +89,12 @@ def main() -> None:
         "configured_tca_offset_tolerance_hours": args.max_tca_offset_hours,
         "pre_event_snapshot_count": int(len(pre)),
         "pre_event_medium_or_high_proximity_alert_count": int(len(alerts)),
+        "pre_event_proximity_alert_counts": proximity_counts,
+        "pre_event_miss_distance_km_min": float(miss_distance.min()) if len(miss_distance) else None,
+        "pre_event_miss_distance_km_median": float(miss_distance.median()) if len(miss_distance) else None,
+        "pre_event_miss_distance_km_max": float(miss_distance.max()) if len(miss_distance) else None,
+        "pre_event_abs_tca_offset_hours_median": float(tca_abs_offset_hours.median()) if len(tca_abs_offset_hours) else None,
+        "miss_distance_vs_days_before_event_spearman": miss_distance_days_spearman,
         "first_high_proximity_alert_days_before_event": (
             float(pre.loc[pre["FORECAST_PROXIMITY_ALERT_LEVEL"] == "HIGH", "DAYS_BEFORE_EVENT"].max())
             if (pre["FORECAST_PROXIMITY_ALERT_LEVEL"] == "HIGH").any() else None
@@ -83,6 +109,7 @@ def main() -> None:
         "scientific_limitations": [
             "A TLE epoch at or before a snapshot does not prove the TLE was publicly available by that snapshot; publication/archive timestamps are needed.",
             "A forecast TCA near the known event time is not sufficient by itself to prove predictive skill.",
+            "Miss-distance summaries and their rank correlation are descriptive for this single event, not a validated skill score or independent baseline comparison.",
             "Collision probability uses the configured model assumptions and should not be treated as empirically validated without object-specific covariance.",
         ],
     }
