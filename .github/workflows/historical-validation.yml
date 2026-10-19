@@ -19,6 +19,8 @@ on:
       - tests/test_provenance_gate.py
       - tests/test_historical_event_catalog.py
       - tests/test_build_tle_availability.py
+      - modules/prepare_spacetrack_provenance.py
+      - tests/test_prepare_spacetrack_provenance.py
       - data/historical_events/events.csv
       - data/historical_events/README.md
       - data/historical_events/cerise_ariane/**
@@ -57,7 +59,8 @@ jobs:
             tests/test_probability_diagnostics.py \
             tests/test_provenance_gate.py \
             tests/test_historical_event_catalog.py \
-            tests/test_build_tle_availability.py
+            tests/test_build_tle_availability.py \
+            tests/test_prepare_spacetrack_provenance.py
 
       - name: Audit historical event catalog readiness
         run: |
