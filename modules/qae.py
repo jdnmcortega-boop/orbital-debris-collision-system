@@ -249,7 +249,10 @@ def run_qae(true_probability, num_eval_qubits=6, shots=200):
     qc.h(eval_reg)
 
     for k in range(m):
-        controlled_Q = Q_gate.power(2**k).control(1)
+        # Control first, then exponentiate: C(Q)^n = C(Q^n). This avoids
+        # Qiskit's unstable multi-qubit unitary decomposition when attempting
+        # to control the already-powered unitary (seen with tiny Pc values).
+        controlled_Q = Q_gate.control(1).power(2**k)
         qc.append(
             controlled_Q,
             [eval_reg[k], state_reg[0]],
