@@ -8,15 +8,16 @@ For each daily snapshot from T-30 days through T-0:
 
 1. Select the newest historical TLE whose epoch is not newer than the snapshot.
 2. Freeze that TLE pair as the information state available at that time.
-3. Propagate that frozen pair to the known historical event boundary.
+3. Propagate that frozen pair across a fixed forecast horizon independent of the event time.
 4. Find the predicted closest approach from that information state.
 5. Calculate the model collision probability.
 6. Estimate the same probability with QAE and matched-budget Monte Carlo.
 7. Keep deterministic probability risk separate from MC sampling noise.
 8. Keep geometry/proximity forecasting separate from probability risk.
 
-The historical event time is used only as the evaluation boundary. The
-known event state is never used to construct the forecast.
+The historical event time is used only for evaluation and ground-truth labels.
+The forecast horizon is fixed independently of the event time. The known event
+state is never used to construct the forecast.
 """
 
 from __future__ import annotations
@@ -147,6 +148,7 @@ def run_historical_validation(
     rewind_days: int = 30,
     snapshot_step_hours: int = 24,
     forecast_step_minutes: int = 30,
+    forecast_horizon_days: int = 35,
     qae_eval_qubits: int = 6,
     qae_shots: int = 200,
     sigma_km: float | None = None,
@@ -157,6 +159,8 @@ def run_historical_validation(
         raise ValueError("rewind_days must be non-negative")
     if snapshot_step_hours <= 0:
         raise ValueError("snapshot_step_hours must be positive")
+    if forecast_horizon_days <= 0:
+        raise ValueError("forecast_horizon_days must be positive")
 
     for norad in (event.object_a_norad, event.object_b_norad):
         if norad not in archives:
@@ -186,7 +190,7 @@ def run_historical_validation(
             sat_a,
             sat_b,
             snapshot,
-            event.event_time_utc,
+            snapshot + timedelta(days=forecast_horizon_days),
             step_minutes=forecast_step_minutes,
         )
 
@@ -263,6 +267,7 @@ def run_historical_validation(
                 "NORAD_B": event.object_b_norad,
                 "OBJECT_B": name_b,
                 "TLE_EPOCH_B": epoch_b.isoformat(),
+                "FORECAST_HORIZON_DAYS": int(forecast_horizon_days),
                 "FORECAST_TCA": forecast_tca.isoformat(),
                 "FORECAST_LEAD_TIME_DAYS": lead_time_days,
                 "FORECAST_MISS_DISTANCE_KM": forecast_miss,
@@ -361,6 +366,12 @@ def main():
     parser.add_argument("--rewind-days", type=int, default=30)
     parser.add_argument("--snapshot-step-hours", type=int, default=24)
     parser.add_argument("--forecast-step-minutes", type=int, default=30)
+    parser.add_argument(
+        "--forecast-horizon-days",
+        type=int,
+        default=35,
+        help="Fixed forecast horizon, independent of the known event time",
+    )
     parser.add_argument("--qae-eval-qubits", type=int, default=6)
     parser.add_argument("--qae-shots", type=int, default=200)
     parser.add_argument("--sigma-km", type=float, default=None)
@@ -382,6 +393,7 @@ def main():
         rewind_days=args.rewind_days,
         snapshot_step_hours=args.snapshot_step_hours,
         forecast_step_minutes=args.forecast_step_minutes,
+        forecast_horizon_days=args.forecast_horizon_days,
         qae_eval_qubits=args.qae_eval_qubits,
         qae_shots=args.qae_shots,
         sigma_km=args.sigma_km,
@@ -399,6 +411,7 @@ def main():
             [
                 "SNAPSHOT_TIME",
                 "DAYS_BEFORE_EVENT",
+                "FORECAST_HORIZON_DAYS",
                 "FORECAST_TCA",
                 "FORECAST_LEAD_TIME_DAYS",
                 "FORECAST_MISS_DISTANCE_KM",
