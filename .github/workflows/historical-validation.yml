@@ -12,6 +12,7 @@ on:
       - modules/audit_historical_validation.py
       - modules/qae.py
       - modules/prediction.py
+      - tests/test_probability_diagnostics.py
       - data/historical_events/iridium33_cosmos2251/historical_tles.3le
       - config.py
       - requirements.txt
@@ -37,8 +38,11 @@ jobs:
       - name: Install validation dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install numpy pandas scipy sgp4
+          python -m pip install numpy pandas scipy sgp4 pytest
           python -m pip install qiskit==2.5.2 qiskit-aer==0.17.2
+
+      - name: Run collision-probability diagnostic tests
+        run: python -m pytest -q tests/test_probability_diagnostics.py
 
       - name: Run archived Iridium 33–Cosmos 2251 replay
         run: |
