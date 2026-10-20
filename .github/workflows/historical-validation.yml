@@ -26,6 +26,8 @@ on:
       - data/historical_events/cerise_ariane/**
       - data/historical_events/iridium33_cosmos2251/historical_tles.3le
       - data/historical_events/iridium33_cosmos2251/provenance.json
+      - data/historical_events/iridium33_cosmos2251/record_level_availability.csv
+      - data/historical_events/iridium33_cosmos2251/spacetrack_coverage_report.json
       - config.py
       - requirements.txt
 
