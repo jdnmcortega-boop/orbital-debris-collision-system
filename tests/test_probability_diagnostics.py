@@ -70,3 +70,23 @@ def test_probability_estimator_summary_separates_pre_event_rows_and_estimator_no
     assert summary["pre_event_rows"]["qae_absolute_error_from_analytic_pc"]["max"] == 3e-8
     assert summary["pre_event_rows"]["mc_ci_contains_analytic_pc"]["contains_analytic_pc"] == 1
     assert summary["pre_event_rows"]["mc_ci_contains_analytic_pc"]["fraction"] == 0.5
+
+
+def test_proximity_and_probability_disagreement_is_reported_without_relabeling():
+    import pandas as pd
+
+    from modules.audit_historical_validation import summarize_proximity_probability_disagreement
+
+    frame = pd.DataFrame({
+        "PREDICTION_TIME_IS_PRE_EVENT": [True, True, True, False],
+        "FORECAST_PROXIMITY_ALERT_LEVEL": ["HIGH", "MEDIUM", "LOW", "HIGH"],
+        "ANALYTIC_RISK_LEVEL": ["LOW", "LOW", "LOW", "HIGH"],
+    })
+
+    summary = summarize_proximity_probability_disagreement(frame)
+
+    assert summary["pre_event_row_count"] == 3
+    assert summary["high_proximity_with_low_analytic_probability_count"] == 1
+    assert summary["medium_or_high_proximity_with_low_analytic_probability_count"] == 2
+    assert summary["proximity_vs_analytic_risk_cross_tab"]["HIGH"]["LOW"] == 1
+    assert "not proof that the event is safe" in summary["interpretation"]
