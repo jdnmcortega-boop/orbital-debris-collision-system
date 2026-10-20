@@ -76,7 +76,7 @@ def assess_operational_availability(validation: pd.DataFrame, manifest: dict, re
             timestamp_a.append(time_a.isoformat() if time_a is not None else None)
             timestamp_b.append(time_b.isoformat() if time_b is not None else None)
             if time_a is None or time_b is None:
-                statuses.append("NO_EXACT_RECORD_MATCH_FOR_BOTH")
+                statuses.append("MISSING_ONE_OR_BOTH_EXACT_RECORD_MATCHES")
             elif time_a > r.SNAPSHOT_TIME or time_b > r.SNAPSHOT_TIME:
                 statuses.append("AT_LEAST_ONE_CREATION_DATE_AFTER_SNAPSHOT")
             else:
@@ -91,7 +91,7 @@ def assess_operational_availability(validation: pd.DataFrame, manifest: dict, re
         before = int(counts.get(
             "BOTH_CREATION_DATES_ON_OR_BEFORE_SNAPSHOT_NOT_AVAILABILITY_PROOF", 0
         ))
-        missing_matches = int(counts.get("NO_EXACT_RECORD_MATCH_FOR_BOTH", 0))
+        missing_matches = int(counts.get("MISSING_ONE_OR_BOTH_EXACT_RECORD_MATCHES", 0))
         diagnostic_summary = {
             "status": "DIAGNOSTIC_ONLY_NOT_VERIFIED",
             "availability_file": str(availability_rel),
