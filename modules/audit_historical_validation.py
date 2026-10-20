@@ -81,6 +81,48 @@ def summarize_probability_estimators(df: pd.DataFrame) -> dict:
     }
 
 
+
+def summarize_proximity_probability_disagreement(df: pd.DataFrame) -> dict:
+    """Report proximity alerts whose analytical Pc label is lower, without relabeling risk."""
+    pre_mask = df.get(
+        "PREDICTION_TIME_IS_PRE_EVENT",
+        pd.Series([True] * len(df), index=df.index),
+    ).astype(str).str.lower().isin(["true", "1"])
+    pre = df.loc[pre_mask]
+
+    proximity = pre.get(
+        "FORECAST_PROXIMITY_ALERT_LEVEL",
+        pd.Series(["MISSING"] * len(pre), index=pre.index),
+    ).fillna("MISSING").astype(str).str.upper()
+    probability = pre.get(
+        "ANALYTIC_RISK_LEVEL",
+        pd.Series(["MISSING"] * len(pre), index=pre.index),
+    ).fillna("MISSING").astype(str).str.upper()
+
+    high_proximity_low_pc = int(((proximity == "HIGH") & (probability == "LOW")).sum())
+    medium_or_high_proximity_low_pc = int(
+        (proximity.isin(["MEDIUM", "HIGH"]) & (probability == "LOW")).sum()
+    )
+    cross_tab = pd.crosstab(
+        proximity.rename("proximity_alert_level"),
+        probability.rename("analytic_probability_risk_level"),
+        dropna=False,
+    )
+    return {
+        "pre_event_row_count": int(len(pre)),
+        "high_proximity_with_low_analytic_probability_count": high_proximity_low_pc,
+        "medium_or_high_proximity_with_low_analytic_probability_count": medium_or_high_proximity_low_pc,
+        "proximity_vs_analytic_risk_cross_tab": {
+            str(index): {str(column): int(value) for column, value in row.items()}
+            for index, row in cross_tab.iterrows()
+        },
+        "interpretation": (
+            "Proximity alerts and analytical collision-probability labels measure different things. "
+            "A HIGH proximity alert with LOW analytical Pc is a model/threshold diagnostic, not proof "
+            "that the event is safe and not a basis for silently changing the Pc label."
+        ),
+    }
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
@@ -203,6 +245,7 @@ def main() -> None:
     report = {
         "collision_probability_model_diagnostics": probability_diagnostics,
         "probability_estimator_diagnostics": summarize_probability_estimators(df),
+        "proximity_probability_disagreement": summarize_proximity_probability_disagreement(df),
         "coarse_grid_baseline": {
             "definition": "Same frozen TLE pair, SGP4 propagator, and forecast window; minimum separation sampled on a fixed UTC-epoch-aligned grid without sub-grid optimization. Grid samples are not anchored to the event-aligned snapshot.",
             "comparison_scope": "Numerical refinement diagnostic only; not an independent orbital-prediction baseline.",
