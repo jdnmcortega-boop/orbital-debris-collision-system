@@ -29,3 +29,20 @@ def test_diagnostics_reflect_lower_explicit_uncertainty_without_changing_thresho
     assert diagnostic["PC_MEDIUM_THRESHOLD_REACHABLE"] is True
     assert diagnostic["PC_HIGH_THRESHOLD_REACHABLE"] is True
     assert diagnostic["PC_UNCERTAINTY_SOURCE"] == "ROW_OBJECT_SIGMAS"
+
+
+def test_historical_validation_probability_audit_columns_are_explicit():
+    # QAE estimates the same Pc target; it is not an independent orbit predictor.
+    from pathlib import Path
+
+    source = Path("modules/historical_validation.py").read_text(encoding="utf-8")
+    for column in (
+        '"ASSUMED_POSITION_SIGMA_PER_OBJECT_KM"',
+        '"COMBINED_ISOTROPIC_SIGMA_KM"',
+        '"HARD_BODY_RADIUS_KM"',
+        '"QAE_RISK_LEVEL"',
+        '"QAE_MINUS_ANALYTIC_PC"',
+        '"QAE_ABS_ERROR_FROM_ANALYTIC_PC"',
+        '"MC_CI_CONTAINS_ANALYTIC_PC"',
+    ):
+        assert column in source
