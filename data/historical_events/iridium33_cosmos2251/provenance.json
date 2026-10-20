@@ -9,6 +9,8 @@
   "notes": [
     "The repository contains TLE epochs but no verified per-record publication or first-availability timestamps.",
     "Do not treat TLE epoch as proof that a record was available to an operator at that time.",
-    "Update this manifest only when supported by a source record, archive metadata, or a reproducible retrieval log."
-  ]
+    "Update this manifest only when supported by a source record, archive metadata, or a reproducible retrieval log.",
+    "Space-Track GP_HISTORY CREATION_DATE values are retained as diagnostic source-record timestamps only; they do not establish operator receipt or first availability."
+  ],
+  "record_level_availability_file": "data/historical_events/iridium33_cosmos2251/record_level_availability.csv"
 }
