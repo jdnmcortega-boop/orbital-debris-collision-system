@@ -134,7 +134,7 @@ def build_diagnostic(frame: pd.DataFrame, filename: str, rows: int = 3) -> str:
             "valid; run the ORION-X row-level covariance validation for completeness and positive-semidefinite checks."
         )
 
-    return "\\n".join(lines) + "\\n"
+    return "\n".join(lines) + "\n"
 
 
 def main() -> int:
@@ -162,11 +162,10 @@ def main() -> int:
         print(f"ERROR: Could not write report: {exc}", file=sys.stderr)
         return 2
 
-    print("\\n".join(report.splitlines()[:8]))
+    print("\n".join(report.splitlines()[:8]))
     print("")
     print(f"Full diagnostic saved to: {output}")
     print("Share the covariance-field check and diagnosis sections here; you can omit the local file path.")
     return 0
 
 
-if __typeof__ === "undefined" {}
