@@ -392,8 +392,22 @@ def run_historical_validation(
                 "FORECAST_MISS_DISTANCE_KM": forecast_miss,
                 "FORECAST_RELATIVE_VELOCITY_KM_S": forecast_velocity,
                 "FORECAST_PROXIMITY_ALERT_LEVEL": proximity_alert,
+                "ASSUMED_POSITION_SIGMA_PER_OBJECT_KM": effective_sigma,
+                "COMBINED_ISOTROPIC_SIGMA_KM": float(combined_sigma),
+                "HARD_BODY_RADIUS_KM": effective_radius,
                 "ANALYTIC_PC": analytic_pc,
                 "ANALYTIC_RISK_LEVEL": analytic_risk,
+                # QAE estimates the same analytic probability target; expose its
+                # risk label and error so it is not mistaken for an independent
+                # orbit-risk model.
+                "QAE_RISK_LEVEL": classify_risk(qae["qae_estimate"]),
+                "QAE_MINUS_ANALYTIC_PC": float(qae["qae_estimate"]) - float(analytic_pc),
+                "QAE_ABS_ERROR_FROM_ANALYTIC_PC": abs(
+                    float(qae["qae_estimate"]) - float(analytic_pc)
+                ),
+                "MC_CI_CONTAINS_ANALYTIC_PC": bool(
+                    float(mc["ci_low"]) <= float(analytic_pc) <= float(mc["ci_high"])
+                ),
                 "PC_MAX_AT_ZERO_MISS_UNDER_ASSUMED_SIGMA": pc_max_zero_miss,
                 "HIGH_PC_THRESHOLD": high_threshold,
                 "HIGH_THRESHOLD_REACHABLE_UNDER_ASSUMED_SIGMA": high_threshold_reachable,
