@@ -46,3 +46,27 @@ def test_historical_validation_probability_audit_columns_are_explicit():
         '"MC_CI_CONTAINS_ANALYTIC_PC"',
     ):
         assert column in source
+
+
+def test_probability_estimator_summary_separates_pre_event_rows_and_estimator_noise():
+    import pandas as pd
+
+    from modules.audit_historical_validation import summarize_probability_estimators
+
+    frame = pd.DataFrame({
+        "PREDICTION_TIME_IS_PRE_EVENT": [True, True, False],
+        "ANALYTIC_RISK_LEVEL": ["LOW", "LOW", "LOW"],
+        "QAE_RISK_LEVEL": ["LOW", "LOW", "LOW"],
+        "MC_RISK_LEVEL": ["LOW", "LOW", "MEDIUM"],
+        "QAE_ABS_ERROR_FROM_ANALYTIC_PC": [1e-8, 3e-8, 2e-8],
+        "MC_CI_CONTAINS_ANALYTIC_PC": [True, False, True],
+    })
+
+    summary = summarize_probability_estimators(frame)
+
+    assert summary["all_rows"]["analytic_risk_counts"] == {"LOW": 3}
+    assert summary["pre_event_rows"]["row_count"] == 2
+    assert summary["pre_event_rows"]["mc_risk_counts"] == {"LOW": 2}
+    assert summary["pre_event_rows"]["qae_absolute_error_from_analytic_pc"]["max"] == 3e-8
+    assert summary["pre_event_rows"]["mc_ci_contains_analytic_pc"]["contains_analytic_pc"] == 1
+    assert summary["pre_event_rows"]["mc_ci_contains_analytic_pc"]["fraction"] == 0.5
