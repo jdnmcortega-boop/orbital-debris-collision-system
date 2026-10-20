@@ -13,6 +13,74 @@ import numpy as np
 import pandas as pd
 
 
+def summarize_probability_estimators(df: pd.DataFrame) -> dict:
+    """Summarize analytic/QAE/MC agreement without treating estimators as independent predictors."""
+    pre_mask = df.get(
+        "PREDICTION_TIME_IS_PRE_EVENT",
+        pd.Series([True] * len(df), index=df.index),
+    ).astype(str).str.lower().isin(["true", "1"])
+    pre = df.loc[pre_mask]
+
+    def risk_counts(frame: pd.DataFrame, column: str) -> dict:
+        if column not in frame.columns:
+            return {}
+        return {
+            str(level): int(count)
+            for level, count in frame[column].fillna("MISSING").value_counts().items()
+        }
+
+    def error_summary(frame: pd.DataFrame) -> dict:
+        column = "QAE_ABS_ERROR_FROM_ANALYTIC_PC"
+        if column not in frame.columns:
+            return {"available": False, "count": 0, "median": None, "max": None}
+        values = pd.to_numeric(frame[column], errors="coerce").dropna()
+        return {
+            "available": True,
+            "count": int(len(values)),
+            "median": float(values.median()) if len(values) else None,
+            "max": float(values.max()) if len(values) else None,
+        }
+
+    coverage_column = "MC_CI_CONTAINS_ANALYTIC_PC"
+
+    def coverage_summary(frame: pd.DataFrame) -> dict:
+        if coverage_column not in frame.columns:
+            return {"available": False, "count": 0, "contains_analytic_pc": 0, "fraction": None}
+        values = frame[coverage_column].astype(str).str.lower().isin(["true", "1"])
+        valid = frame[coverage_column].notna()
+        count = int(valid.sum())
+        covered = int((values & valid).sum())
+        return {
+            "available": True,
+            "count": count,
+            "contains_analytic_pc": covered,
+            "fraction": float(covered / count) if count else None,
+        }
+
+    return {
+        "interpretation": (
+            "QAE estimates the analytic Pc target; Monte Carlo estimates that same target "
+            "with finite-sample noise. Agreement here does not validate the orbit forecast "
+            "or the assumed uncertainty model."
+        ),
+        "all_rows": {
+            "analytic_risk_counts": risk_counts(df, "ANALYTIC_RISK_LEVEL"),
+            "qae_risk_counts": risk_counts(df, "QAE_RISK_LEVEL"),
+            "mc_risk_counts": risk_counts(df, "MC_RISK_LEVEL"),
+            "qae_absolute_error_from_analytic_pc": error_summary(df),
+            "mc_ci_contains_analytic_pc": coverage_summary(df),
+        },
+        "pre_event_rows": {
+            "row_count": int(len(pre)),
+            "analytic_risk_counts": risk_counts(pre, "ANALYTIC_RISK_LEVEL"),
+            "qae_risk_counts": risk_counts(pre, "QAE_RISK_LEVEL"),
+            "mc_risk_counts": risk_counts(pre, "MC_RISK_LEVEL"),
+            "qae_absolute_error_from_analytic_pc": error_summary(pre),
+            "mc_ci_contains_analytic_pc": coverage_summary(pre),
+        },
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
@@ -134,6 +202,7 @@ def main() -> None:
 
     report = {
         "collision_probability_model_diagnostics": probability_diagnostics,
+        "probability_estimator_diagnostics": summarize_probability_estimators(df),
         "coarse_grid_baseline": {
             "definition": "Same frozen TLE pair, SGP4 propagator, and forecast window; minimum separation sampled on a fixed UTC-epoch-aligned grid without sub-grid optimization. Grid samples are not anchored to the event-aligned snapshot.",
             "comparison_scope": "Numerical refinement diagnostic only; not an independent orbital-prediction baseline.",
