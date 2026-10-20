@@ -65,6 +65,28 @@ def test_both_records_available_before_snapshot_are_verified(tmp_path: Path):
     assert rows.loc[0, "OPERATIONAL_AVAILABILITY_STATUS"] == "VERIFIED_AVAILABLE_BY_SNAPSHOT"
 
 
+def test_missing_one_exact_record_match_is_labeled_clearly(tmp_path: Path):
+    availability = tmp_path / "availability.csv"
+    pd.DataFrame([
+        {"NORAD_CAT_ID": 100, "TLE_EPOCH": "2008-12-31T00:00:00Z", "AVAILABLE_AT_UTC": "2008-12-31T01:00:00Z"},
+    ]).to_csv(availability, index=False)
+    rows, summary = assess_operational_availability(
+        sample_validation(),
+        {
+            "status": "NOT_VERIFIED",
+            "record_level_publication_timestamps_available": False,
+            "record_level_availability_file": "availability.csv",
+        },
+        tmp_path,
+    )
+    diagnostic = summary["spacetrack_creation_date_diagnostic"]
+    assert diagnostic["rows_missing_one_or_both_exact_record_matches"] == 1
+    assert rows.loc[0, "SPACETRACK_CREATION_DATE_MATCH_STATUS"] == (
+        "MISSING_ONE_OR_BOTH_EXACT_RECORD_MATCHES"
+    )
+    assert summary["status"] == "NOT_VERIFIED"
+
+
 def test_spacetrack_matches_are_diagnostic_only_when_manifest_unverified(tmp_path: Path):
     availability = tmp_path / "availability.csv"
     pd.DataFrame([
