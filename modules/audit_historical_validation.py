@@ -123,6 +123,58 @@ def summarize_proximity_probability_disagreement(df: pd.DataFrame) -> dict:
         ),
     }
 
+def summarize_collision_geometry(df: pd.DataFrame) -> dict:
+    """Compare forecast miss distances with the configured hard-body radius."""
+    required = {"FORECAST_MISS_DISTANCE_KM", "HARD_BODY_RADIUS_KM"}
+    missing = sorted(required - set(df.columns))
+
+    if missing:
+        return {
+            "available": False,
+            "missing_columns": missing,
+            "interpretation": (
+                "Collision geometry cannot be evaluated without both "
+                "forecast miss distance and hard-body radius."
+            ),
+        }
+
+    miss = pd.to_numeric(df["FORECAST_MISS_DISTANCE_KM"], errors="coerce")
+    radius = pd.to_numeric(df["HARD_BODY_RADIUS_KM"], errors="coerce")
+
+    valid = (
+        miss.notna()
+        & radius.notna()
+        & (miss >= 0)
+        & (radius > 0)
+        & np.isfinite(miss)
+        & np.isfinite(radius)
+    )
+
+    checked = int(valid.sum())
+    within = valid & (miss <= radius)
+    ratios = miss[valid] / radius[valid]
+
+    return {
+        "available": True,
+        "rows_checked": checked,
+        "rows_with_invalid_or_missing_geometry": int((~valid).sum()),
+        "rows_with_forecast_miss_within_hard_body_radius": int(within.sum()),
+        "minimum_forecast_miss_distance_km": (
+            float(miss[valid].min()) if checked else None
+        ),
+        "minimum_miss_to_radius_ratio": (
+            float(ratios.min()) if checked else None
+        ),
+        "interpretation": (
+            "This compares reconstructed forecast geometry with the configured "
+            "hard-body radius. A miss within the radius is a geometric consistency "
+            "check, not proof of prospective predictive skill. A miss outside the "
+            "radius means the reconstructed trajectory does not reproduce the "
+            "collision geometry for that row under this criterion."
+        ),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
@@ -243,6 +295,7 @@ def main() -> None:
         }
 
     report = {
+        "collision_geometry_diagnostics": summarize_collision_geometry(df),
         "collision_probability_model_diagnostics": probability_diagnostics,
         "probability_estimator_diagnostics": summarize_probability_estimators(df),
         "proximity_probability_disagreement": summarize_proximity_probability_disagreement(df),
