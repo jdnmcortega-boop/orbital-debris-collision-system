@@ -519,6 +519,7 @@ def main():
             "📡 Live Tracker / 30-Day Forecast",
             "🌍 Orbital Tracker",
             "🧪 Prototype Simulation",
+            "🧪 Hardware Research Experiments (H04–H09)",
             "💥 Collision & Fragmentation",
             "🔐 QKD vs Classical",
         ],
@@ -538,6 +539,9 @@ def main():
     elif page == "🧪 Prototype Simulation":
         from ui.prototype_simulation_tab import render_prototype_simulation_tab
         render_prototype_simulation_tab()
+    elif page == "🧪 Hardware Research Experiments (H04–H09)":
+        from ui.hardware_research_tab import render_hardware_research_tab
+        render_hardware_research_tab()
     elif page == "💥 Collision & Fragmentation":
         from ui.collision_fragmentation_tab import render_collision_fragmentation_tab
         render_collision_fragmentation_tab()
