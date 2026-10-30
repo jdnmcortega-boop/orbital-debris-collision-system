@@ -518,6 +518,7 @@ def main():
             "⏪ Historical Replay / Validation",
             "📡 Live Tracker / 30-Day Forecast",
             "🌍 Orbital Tracker",
+            "🧪 DSST Experimental (10,000 Objects)",
             "🧪 Prototype Simulation",
             "💥 Collision & Fragmentation",
             "🔐 QKD vs Classical",
@@ -535,6 +536,9 @@ def main():
         render_live_tab()
     elif page == "🌍 Orbital Tracker":
         render_orbital_tracker()
+    elif page == "🧪 DSST Experimental (10,000 Objects)":
+        from ui.dsst_experimental_tab import render_dsst_experimental_tab
+        render_dsst_experimental_tab()
     elif page == "🧪 Prototype Simulation":
         from ui.prototype_simulation_tab import render_prototype_simulation_tab
         render_prototype_simulation_tab()
