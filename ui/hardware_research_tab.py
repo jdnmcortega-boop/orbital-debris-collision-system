@@ -289,13 +289,13 @@ def render_hardware_research_tab():
         density = c3.number_input("Effective path-average density (kg/m³)", 1e-8, 0.01, 1e-5, format="%.7f")
         if st.button("Run H09 reentry scenario comparison", type="primary", key="run_reentry"):
             scenarios = [
-                ("Compact aluminum body", mass, area, cp, melt),
-                ("Thin aluminum panel", mass*0.55, area*2.2, cp, melt),
-                ("Dense steel component", mass*1.25, area*0.8, 490.0, 1750.0),
+                ("Low-heating disposal", velocity*0.92, density*0.70),
+                ("Nominal controlled deorbit", velocity, density),
+                ("High-heating disposal", velocity*1.08, density*1.40),
             ]
             scenario_rows = []
-            for idx, (label, m_i, a_i, cp_i, melt_i) in enumerate(scenarios):
-                fraction, survives = _reentry_survival(int(n), int(seed)+idx, m_i, a_i, cp_i, melt_i, velocity, density)
+            for idx, (label, v_i, rho_i) in enumerate(scenarios):
+                fraction, survives = _reentry_survival(int(n), int(seed)+idx, mass, area, cp, melt, v_i, rho_i)
                 for j in range(int(n)):
                     scenario_rows.append({"Scenario":label,"Trial":j+1,
                                           "Estimated remaining mass fraction":fraction[j],
@@ -314,7 +314,7 @@ def render_hardware_research_tab():
             st.write(f"H09 scenario survival-rate chi-square test: p = {float(chi.pvalue):.6g}.")
             st.plotly_chart(px.box(reentry,x="Scenario",y="Estimated remaining mass fraction",
                                    title="Modeled reentry remaining-mass comparison"),width="stretch")
-            st.caption("Scenarios vary mass, reference area, and material heat properties. This lumped energy-balance proxy omits altitude-resolved trajectory, shock-layer chemistry, radiative heating, ablation, fragmentation, and material-specific shape effects. It is not a validated reentry survivability predictor.")
+            st.caption("Scenarios vary the effective entry speed and path-average atmospheric density to represent different disposal/reentry conditions. This lumped energy-balance proxy omits altitude-resolved trajectory, shock-layer chemistry, radiative heating, ablation, fragmentation, and material-specific shape effects. It is not a validated reentry survivability predictor.")
 
     st.divider()
     st.subheader("Exportable simulation record")
