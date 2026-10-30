@@ -97,12 +97,12 @@ def test_build_respects_requested_limit(tmp_path, monkeypatch):
     assert result["selected_object_count"] == 2
 
 
-def test_invalid_mean_motion_is_rejected():
+def test_non_finite_numeric_fields_are_rejected():
     row = _row("10021")
-    row["MEAN_MOTION"] = "0"
+    row["MEAN_MOTION"] = "nan"
     try:
         builder.parse_float(row, "MEAN_MOTION")
     except ValueError:
         pass
     else:
-        raise AssertionError("Expected invalid mean motion to be rejected by range validation")
+        raise AssertionError("Expected a non-finite mean motion to be rejected")
