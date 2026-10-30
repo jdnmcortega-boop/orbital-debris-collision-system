@@ -286,7 +286,7 @@ def render_hardware_research_tab():
         c1,c2,c3 = st.columns(3)
         melt = c1.number_input("Representative melt temperature (K)", 500.0, 3500.0, 1700.0, 50.0)
         velocity = c2.number_input("Entry speed (km/s)", 5.0, 12.0, 7.8, 0.1)
-        density = c3.number_input("Effective path-average density (kg/m³)", 1e-5, 0.1, 0.002, format="%.5f")
+        density = c3.number_input("Effective path-average density (kg/m³)", 1e-8, 0.01, 1e-5, format="%.7f")
         if st.button("Run H09 reentry scenario comparison", type="primary", key="run_reentry"):
             scenarios = [
                 ("Compact aluminum body", mass, area, cp, melt),
