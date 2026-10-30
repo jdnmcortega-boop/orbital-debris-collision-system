@@ -162,15 +162,18 @@ def render_hardware_research_tab():
             st.session_state["hw_detumble"] = result
             # H05 condition sweep varies mass, radius, and starting spin.
             sweep = []
+            sweep_trials = []
             for label, mm, rr, ww in [
                 ("Light / slow", mass*0.5, radius*0.8, omega*0.6),
                 ("Nominal", mass, radius, omega),
                 ("Heavy / fast", mass*2, radius*1.2, omega*1.5),
             ]:
                 x = _run_detumbling(int(n), int(seed)+len(sweep)+1, duration, mm, rr, ww, field, conductivity)
+                sweep_trials.append(x["active_time"])
                 sweep.append({"Condition":label, "Mean detumbling time (s)":float(np.mean(x["active_time"])),
                               "SD (s)":float(np.std(x["active_time"],ddof=1))})
             st.session_state["hw_detumble_sweep"] = pd.DataFrame(sweep)
+            st.session_state["hw_detumble_sweep_trials"] = sweep_trials
         result = st.session_state.get("hw_detumble")
         if result:
             active = result["active_final"]; baseline = result["baseline_final"]
@@ -190,7 +193,10 @@ def render_hardware_research_tab():
                 st.dataframe(sweep, hide_index=True, width="stretch")
                 st.plotly_chart(px.bar(sweep, x="Condition", y="Mean detumbling time (s)", error_y="SD (s)",
                                        title="Modeled detumbling time across debris conditions"), width="stretch")
-                st.caption("H05 is assessed by the spread across modeled conditions; this is a condition-sensitivity analysis, not proof of a population-level difference.")
+                h05 = stats.f_oneway(*st.session_state["hw_detumble_sweep_trials"])
+                st.write(f"H05 one-way ANOVA across the three modeled debris conditions: p = {float(h05.pvalue):.6g}.")
+                st.write("H05: " + ("Reject the null hypothesis in this model run." if h05.pvalue < 0.05 else "Fail to reject the null hypothesis in this model run."))
+                st.caption("The conditions are deliberately different modeled combinations of mass, size, and initial spin. The ANOVA tests those simulated groups; it does not establish a real-world hardware effect.")
             st.caption("Model limitation: the effective damping coefficient is phenomenological. A static superconducting field alone does not guarantee eddy-current braking; relative motion, conductive paths, field geometry, and measured torque are required.")
 
     with tabs[1]:
@@ -238,16 +244,38 @@ def render_hardware_research_tab():
             if perigee >= altitude:
                 st.error("Target perigee must be below the initial orbit altitude.")
             else:
-                estimates = _disposal_estimates(altitude, perigee, accel, drag)
-                df = pd.DataFrame([{"Strategy":k,"Estimated disposal time (days)":v[0],
-                                    "Required Δv (m/s)":v[1]} for k,v in estimates.items()])
-                st.session_state["hw_disposal"] = df
+                rng = np.random.default_rng(int(seed))
+                trial_rows = []
+                for i in range(int(n)):
+                    h = max(altitude + rng.normal(0, 8), perigee + 20)
+                    d = max(drag * rng.lognormal(0, 0.12), 0.05)
+                    a_i = max(accel * rng.lognormal(0, 0.12), 1e-7)
+                    estimates = _disposal_estimates(h, perigee, a_i, d)
+                    for strategy, (days, dv) in estimates.items():
+                        trial_rows.append({"Trial":i+1,"Strategy":strategy,
+                                           "Estimated disposal time (days)":days,
+                                           "Required Δv (m/s)":dv})
+                trials = pd.DataFrame(trial_rows)
+                summary = trials.groupby("Strategy").agg(
+                    **{"Mean disposal time (days)":("Estimated disposal time (days)","mean"),
+                       "SD disposal time (days)":("Estimated disposal time (days)","std"),
+                       "Mean required Δv (m/s)":("Required Δv (m/s)","mean"),
+                       "SD required Δv (m/s)":("Required Δv (m/s)","std")}).reset_index()
+                st.session_state["hw_disposal"] = summary
+                st.session_state["hw_disposal_trials"] = trials
         disposal = st.session_state.get("hw_disposal")
         if disposal is not None:
             st.dataframe(disposal, hide_index=True, width="stretch")
-            st.plotly_chart(px.bar(disposal,x="Strategy",y="Estimated disposal time (days)",
-                                   title="Estimated disposal time by strategy"),width="stretch")
-            st.caption("The drag estimate is an order-of-magnitude proxy. Real disposal comparisons require orbit propagation with atmospheric density, ballistic coefficient, attitude, solar activity, and maneuver constraints. Δv is zero for passive drag in this simplified comparison.")
+            trials = st.session_state["hw_disposal_trials"]
+            time_groups = [g["Estimated disposal time (days)"].to_numpy() for _,g in trials.groupby("Strategy")]
+            dv_groups = [g["Required Δv (m/s)"].to_numpy() for _,g in trials.groupby("Strategy")]
+            time_anova, dv_anova = stats.f_oneway(*time_groups), stats.f_oneway(*dv_groups)
+            st.write(f"H08 disposal-time ANOVA: p = {float(time_anova.pvalue):.6g}; required-Δv ANOVA: p = {float(dv_anova.pvalue):.6g}.")
+            st.plotly_chart(px.box(trials,x="Strategy",y="Estimated disposal time (days)",
+                                   title="Monte Carlo disposal-time comparison"),width="stretch")
+            st.plotly_chart(px.box(trials,x="Strategy",y="Required Δv (m/s)",
+                                   title="Monte Carlo required-Δv comparison"),width="stretch")
+            st.caption("Uncertainty here is sampled around user-entered altitude, drag, and thrust assumptions. The drag estimate remains an order-of-magnitude proxy; real comparisons require validated orbit propagation, atmospheric density, ballistic coefficient, attitude, solar activity, and maneuver constraints. Passive drag has zero commanded Δv in this simplified model.")
 
     with tabs[3]:
         st.subheader("H09 — Estimated reentry survivability")
@@ -259,20 +287,34 @@ def render_hardware_research_tab():
         melt = c1.number_input("Representative melt temperature (K)", 500.0, 3500.0, 1700.0, 50.0)
         velocity = c2.number_input("Entry speed (km/s)", 5.0, 12.0, 7.8, 0.1)
         density = c3.number_input("Effective path-average density (kg/m³)", 1e-5, 0.1, 0.002, format="%.5f")
-        if st.button("Run H09 reentry trials", type="primary", key="run_reentry"):
-            fraction, survives = _reentry_survival(int(n), int(seed), mass, area, cp, melt, velocity, density)
-            st.session_state["hw_reentry"] = {"fraction":fraction,"survives":survives}
+        if st.button("Run H09 reentry scenario comparison", type="primary", key="run_reentry"):
+            scenarios = [
+                ("Compact aluminum body", mass, area, cp, melt),
+                ("Thin aluminum panel", mass*0.55, area*2.2, cp, melt),
+                ("Dense steel component", mass*1.25, area*0.8, 490.0, 1750.0),
+            ]
+            scenario_rows = []
+            for idx, (label, m_i, a_i, cp_i, melt_i) in enumerate(scenarios):
+                fraction, survives = _reentry_survival(int(n), int(seed)+idx, m_i, a_i, cp_i, melt_i, velocity, density)
+                for j in range(int(n)):
+                    scenario_rows.append({"Scenario":label,"Trial":j+1,
+                                          "Estimated remaining mass fraction":fraction[j],
+                                          "Survives (>5% mass)":bool(survives[j])})
+            re_df = pd.DataFrame(scenario_rows)
+            st.session_state["hw_reentry_trials"] = re_df
+            st.session_state["hw_reentry"] = re_df
         reentry = st.session_state.get("hw_reentry")
-        if reentry:
-            rate = float(np.mean(reentry["survives"]))
-            a,b,c = st.columns(3)
-            a.metric("Estimated survival fraction", f"{np.mean(reentry['fraction']):.1%}")
-            b.metric("Trials retaining >5% mass", f"{rate:.1%}")
-            c.metric("Trials", f"{len(reentry['survives']):,}")
-            st.plotly_chart(px.histogram(pd.DataFrame({"Estimated remaining mass fraction":reentry["fraction"]}),
-                                         x="Estimated remaining mass fraction",nbins=30,
-                                         title="Modeled reentry remaining-mass distribution"),width="stretch")
-            st.caption("This lumped energy-balance proxy omits altitude-resolved trajectory, shock-layer chemistry, radiative heating, ablation, fragmentation, and material-specific shape effects. It is not a validated reentry survivability predictor.")
+        if reentry is not None:
+            summary = reentry.groupby("Scenario").agg(
+                **{"Mean remaining mass fraction":("Estimated remaining mass fraction","mean"),
+                   "Survival rate":("Survives (>5% mass)","mean")}).reset_index()
+            st.dataframe(summary, hide_index=True, width="stretch")
+            counts = reentry.groupby("Scenario")["Survives (>5% mass)"].agg(["sum","count"])
+            chi = stats.chi2_contingency(counts[["sum"]].assign(failures=counts["count"]-counts["sum"]).to_numpy(), correction=True)
+            st.write(f"H09 scenario survival-rate chi-square test: p = {float(chi.pvalue):.6g}.")
+            st.plotly_chart(px.box(reentry,x="Scenario",y="Estimated remaining mass fraction",
+                                   title="Modeled reentry remaining-mass comparison"),width="stretch")
+            st.caption("Scenarios vary mass, reference area, and material heat properties. This lumped energy-balance proxy omits altitude-resolved trajectory, shock-layer chemistry, radiative heating, ablation, fragmentation, and material-specific shape effects. It is not a validated reentry survivability predictor.")
 
     st.divider()
     st.subheader("Exportable simulation record")
@@ -289,10 +331,12 @@ def render_hardware_research_tab():
         exports.append(pd.DataFrame({"trial":np.arange(1,len(cap["hybrid_success"])+1),
             "hybrid_capture_success":cap["hybrid_success"],"conventional_capture_success":cap["conventional_success"],
             "hybrid_stability_index":cap["hybrid_stability"],"conventional_stability_index":cap["conventional_stability"]}))
-    re = st.session_state.get("hw_reentry")
-    if re:
-        exports.append(pd.DataFrame({"trial":np.arange(1,len(re["fraction"])+1),
-            "estimated_remaining_mass_fraction":re["fraction"],"estimated_survival":re["survives"]}))
+    re = st.session_state.get("hw_reentry_trials")
+    if re is not None:
+        exports.append(re.reset_index(drop=True))
+    disposal_trials = st.session_state.get("hw_disposal_trials")
+    if disposal_trials is not None:
+        exports.append(disposal_trials.reset_index(drop=True))
     if exports:
         combined = pd.concat(exports, axis=1)
         st.download_button("Download simulation trials (CSV)", combined.to_csv(index=False).encode("utf-8"),
