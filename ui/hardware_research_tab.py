@@ -309,9 +309,10 @@ def render_hardware_research_tab():
                 **{"Mean remaining mass fraction":("Estimated remaining mass fraction","mean"),
                    "Survival rate":("Survives (>5% mass)","mean")}).reset_index()
             st.dataframe(summary, hide_index=True, width="stretch")
-            counts = reentry.groupby("Scenario")["Survives (>5% mass)"].agg(["sum","count"])
-            chi = stats.chi2_contingency(counts[["sum"]].assign(failures=counts["count"]-counts["sum"]).to_numpy(), correction=True)
-            st.write(f"H09 scenario survival-rate chi-square test: p = {float(chi.pvalue):.6g}.")
+            survival_groups = [g["Estimated remaining mass fraction"].to_numpy() for _,g in reentry.groupby("Scenario")]
+            h09 = stats.f_oneway(*survival_groups)
+            st.write(f"H09 one-way ANOVA on estimated remaining-mass fraction across disposal scenarios: p = {float(h09.pvalue):.6g}.")
+            st.write("H09: " + ("Reject the null hypothesis in this model run." if h09.pvalue < 0.05 else "Fail to reject the null hypothesis in this model run."))
             st.plotly_chart(px.box(reentry,x="Scenario",y="Estimated remaining mass fraction",
                                    title="Modeled reentry remaining-mass comparison"),width="stretch")
             st.caption("Scenarios vary the effective entry speed and path-average atmospheric density to represent different disposal/reentry conditions. This lumped energy-balance proxy omits altitude-resolved trajectory, shock-layer chemistry, radiative heating, ablation, fragmentation, and material-specific shape effects. It is not a validated reentry survivability predictor.")
