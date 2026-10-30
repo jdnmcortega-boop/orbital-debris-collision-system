@@ -101,21 +101,59 @@ def _capture_trials(n, seed, roughness, contamination, speed, disturbance, adhes
             "hybrid_stability": hybrid_stability, "conventional_stability": conventional_stability}
 
 
-def _disposal_estimates(altitude_km, target_perigee_km, thrust_accel, drag_scale):
-    r1 = R_EARTH + altitude_km*1000
-    rp = R_EARTH + target_perigee_km*1000
-    a = (r1+rp)/2
-    v_circ = math.sqrt(MU_EARTH/r1)
-    v_transfer = math.sqrt(MU_EARTH*(2/r1-1/a))
-    delta_v = max(v_circ-v_transfer, 0.0)
-    transfer_time = math.pi*math.sqrt(a**3/MU_EARTH)
-    # Drag estimate: calibrated order-of-magnitude proxy, not a propagator.
-    drag_days = (altitude_km/400.0)**2 * 180.0 / max(drag_scale, 0.05)
-    low_thrust_days = delta_v / max(thrust_accel, 1e-6) / 86400
-    return {"Impulsive transfer": (transfer_time/86400, delta_v),
-            "Drag augmentation": (drag_days, 0.0),
-            "Low-thrust maneuver": (low_thrust_days, delta_v)}
+def _disposal_estimates(
+    altitude_km, target_perigee_km, thrust_accel, drag_scale,
+    object_mass_kg, reference_area_m2, drag_coefficient=2.2,
+):
+    """Compare three simplified deorbit approaches using a common target.
 
+    Impulsive: two-body Hohmann-like retrograde transfer to an ellipse whose
+    perigee is target_perigee_km.
+    Low thrust: same idealized velocity change divided by available acceleration.
+    Drag augmentation: integrate circular-orbit decay through an exponential
+    atmosphere using the object's ballistic coefficient.
+
+    These are screening estimates, not operational orbit predictions.
+    """
+    r1 = R_EARTH + altitude_km * 1000.0
+    rp = R_EARTH + target_perigee_km * 1000.0
+    if rp >= r1:
+        raise ValueError("Target perigee must be below the initial orbit altitude.")
+
+    semi_major_axis = 0.5 * (r1 + rp)
+    v_circular = math.sqrt(MU_EARTH / r1)
+    v_perigee_transfer = math.sqrt(MU_EARTH * (2.0 / r1 - 1.0 / semi_major_axis))
+    delta_v = max(v_circular - v_perigee_transfer, 0.0)
+    transfer_seconds = math.pi * math.sqrt(semi_major_axis**3 / MU_EARTH)
+
+    low_thrust_seconds = delta_v / max(float(thrust_accel), 1e-9)
+
+    # Exponential-atmosphere circular-orbit decay approximation:
+    # da/dt = -rho * sqrt(mu*a) / ballistic_coefficient.
+    # Reference density is an approximate representative value at 400 km.
+    beta = object_mass_kg / max(drag_coefficient * reference_area_m2, 1e-9)
+    reference_density_400_km = 3.725e-12  # kg/m^3
+    scale_height_m = 60_000.0
+    step_m = 2_000.0
+    radius_m = r1
+    target_radius_m = rp
+    drag_seconds = 0.0
+    while radius_m > target_radius_m:
+        next_radius = max(radius_m - step_m, target_radius_m)
+        midpoint_altitude_m = 0.5 * (radius_m + next_radius) - R_EARTH
+        density = reference_density_400_km * math.exp(
+            -(midpoint_altitude_m - 400_000.0) / scale_height_m
+        ) * max(drag_scale, 0.01)
+        midpoint_radius = 0.5 * (radius_m + next_radius)
+        da_dt = density * math.sqrt(MU_EARTH * midpoint_radius) / beta
+        drag_seconds += (radius_m - next_radius) / max(da_dt, 1e-30)
+        radius_m = next_radius
+
+    return {
+        "Impulsive transfer": (transfer_seconds / 86400.0, delta_v),
+        "Drag augmentation": (drag_seconds / 86400.0, 0.0),
+        "Low-thrust maneuver": (low_thrust_seconds / 86400.0, delta_v),
+    }
 
 def _reentry_survival(n, seed, mass_kg, area_m2, heat_capacity, melt_temp, speed_kms, density_scale):
     rng = np.random.default_rng(seed)
@@ -239,7 +277,11 @@ def render_hardware_research_tab():
         altitude = c1.slider("Initial circular orbit altitude (km)", 200, 2000, 700, 25)
         perigee = c2.slider("Target perigee altitude (km)", 80, 300, 120, 10)
         accel = c3.number_input("Low-thrust acceleration (m/s²)", 1e-6, 0.01, 0.0001, format="%.6f")
-        drag = st.slider("Drag augmentation factor", 0.2, 10.0, 2.0, 0.1)
+        c1,c2,c3 = st.columns(3)
+        drag = c1.slider("Atmospheric drag multiplier", 0.2, 10.0, 2.0, 0.1)
+        object_mass = c2.number_input("Debris mass (kg)", 0.1, 5000.0, 10.0, 0.5, key="h08_mass")
+        reference_area = c3.number_input("Reference area (m²)", 0.001, 100.0, 0.1, 0.01, key="h08_area")
+        drag_coefficient = st.number_input("Drag coefficient (Cd)", 1.0, 3.0, 2.2, 0.1, key="h08_cd")
         if st.button("Calculate H08 disposal scenarios", type="primary", key="run_disposal"):
             if perigee >= altitude:
                 st.error("Target perigee must be below the initial orbit altitude.")
@@ -248,34 +290,72 @@ def render_hardware_research_tab():
                 trial_rows = []
                 for i in range(int(n)):
                     h = max(altitude + rng.normal(0, 8), perigee + 20)
-                    d = max(drag * rng.lognormal(0, 0.12), 0.05)
-                    a_i = max(accel * rng.lognormal(0, 0.12), 1e-7)
-                    estimates = _disposal_estimates(h, perigee, a_i, d)
+                    d = max(drag * rng.lognormal(0, 0.12), 0.01)
+                    a_i = max(accel * rng.lognormal(0, 0.12), 1e-9)
+                    m_i = max(object_mass * rng.lognormal(0, 0.08), 0.01)
+                    area_i = max(reference_area * rng.lognormal(0, 0.08), 1e-5)
+                    estimates = _disposal_estimates(
+                        h, perigee, a_i, d, m_i, area_i, drag_coefficient
+                    )
                     for strategy, (days, dv) in estimates.items():
-                        trial_rows.append({"Trial":i+1,"Strategy":strategy,
-                                           "Estimated disposal time (days)":days,
-                                           "Required Δv (m/s)":dv})
+                        trial_rows.append({
+                            "Trial": i + 1,
+                            "Strategy": strategy,
+                            "Estimated disposal time (days)": days,
+                            "Required commanded Δv (m/s)": dv,
+                        })
                 trials = pd.DataFrame(trial_rows)
                 summary = trials.groupby("Strategy").agg(
-                    **{"Mean disposal time (days)":("Estimated disposal time (days)","mean"),
-                       "SD disposal time (days)":("Estimated disposal time (days)","std"),
-                       "Mean required Δv (m/s)":("Required Δv (m/s)","mean"),
-                       "SD required Δv (m/s)":("Required Δv (m/s)","std")}).reset_index()
+                    **{
+                        "Mean disposal time (days)": ("Estimated disposal time (days)", "mean"),
+                        "SD disposal time (days)": ("Estimated disposal time (days)", "std"),
+                        "Mean commanded Δv (m/s)": ("Required commanded Δv (m/s)", "mean"),
+                        "SD commanded Δv (m/s)": ("Required commanded Δv (m/s)", "std"),
+                    }
+                ).reset_index()
                 st.session_state["hw_disposal"] = summary
                 st.session_state["hw_disposal_trials"] = trials
         disposal = st.session_state.get("hw_disposal")
         if disposal is not None:
             st.dataframe(disposal, hide_index=True, width="stretch")
             trials = st.session_state["hw_disposal_trials"]
-            time_groups = [g["Estimated disposal time (days)"].to_numpy() for _,g in trials.groupby("Strategy")]
-            dv_groups = [g["Required Δv (m/s)"].to_numpy() for _,g in trials.groupby("Strategy")]
-            time_anova, dv_anova = stats.f_oneway(*time_groups), stats.f_oneway(*dv_groups)
-            st.write(f"H08 disposal-time ANOVA: p = {float(time_anova.pvalue):.6g}; required-Δv ANOVA: p = {float(dv_anova.pvalue):.6g}.")
-            st.plotly_chart(px.box(trials,x="Strategy",y="Estimated disposal time (days)",
-                                   title="Monte Carlo disposal-time comparison"),width="stretch")
-            st.plotly_chart(px.box(trials,x="Strategy",y="Required Δv (m/s)",
-                                   title="Monte Carlo required-Δv comparison"),width="stretch")
-            st.caption("Uncertainty here is sampled around user-entered altitude, drag, and thrust assumptions. The drag estimate remains an order-of-magnitude proxy; real comparisons require validated orbit propagation, atmospheric density, ballistic coefficient, attitude, solar activity, and maneuver constraints. Passive drag has zero commanded Δv in this simplified model.")
+            time_groups = [
+                group["Estimated disposal time (days)"].to_numpy()
+                for _, group in trials.groupby("Strategy")
+            ]
+            time_anova = stats.f_oneway(*time_groups)
+            st.write(
+                f"Disposal-time ANOVA across the three modeled strategies: "
+                f"F = {float(time_anova.statistic):.3f}; p = {float(time_anova.pvalue):.6g}."
+            )
+            st.caption(
+                "No inferential test is applied to commanded Δv: in this model, drag augmentation "
+                "is assigned zero commanded Δv, while the impulsive and low-thrust cases use the "
+                "same idealized transfer Δv. Those values are structural model assumptions."
+            )
+            st.plotly_chart(
+                px.box(
+                    trials, x="Strategy", y="Estimated disposal time (days)",
+                    title="Monte Carlo estimated disposal-time comparison",
+                ),
+                width="stretch",
+            )
+            st.plotly_chart(
+                px.box(
+                    trials, x="Strategy", y="Required commanded Δv (m/s)",
+                    title="Modeled commanded Δv comparison",
+                ),
+                width="stretch",
+            )
+            st.caption(
+                "Model basis: impulsive transfer uses a two-body Hohmann-like transfer to the "
+                "specified perigee; low-thrust duration is estimated as Δv divided by constant "
+                "acceleration; drag decay integrates a circular-orbit approximation through an "
+                "exponential atmosphere using mass, area, Cd, and an atmospheric-density multiplier. "
+                "The atmosphere is not time-varying and the model omits full eccentric-orbit "
+                "propagation, attitude variation, solar activity, and detailed maneuver constraints. "
+                "Treat all outputs as preliminary simulation estimates, not validated disposal forecasts."
+            )
 
     with tabs[3]:
         st.subheader("H09 — Estimated reentry survivability")
