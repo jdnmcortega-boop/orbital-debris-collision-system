@@ -1,0 +1,4 @@
+# Optional DSST experimental environment.
+# Install only in the DSST development environment; do not add to the main
+# Streamlit requirements until the Orekit runtime has been validated there.
+orekit-jpype[jdk4py]==13.1.7.1
