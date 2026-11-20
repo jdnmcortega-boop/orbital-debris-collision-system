@@ -679,8 +679,18 @@ def render_live_tab():
     )
 
     orbital_df = load_current_orbital_data()
-    predictions = load_csv(str(PROJECT_ROOT / "results" / "predictions.csv"))
-    conjunctions = load_csv(str(config.CONJUNCTIONS_FILE))
+
+    # Never show saved CSV outputs as a current forecast on initial page load.
+    # Live outputs become visible only after a successful rebuild in this session.
+    live_results_ready = bool(st.session_state.get("live_refresh_metrics_ready", False))
+    predictions = (
+        load_csv(str(PROJECT_ROOT / "results" / "predictions.csv"))
+        if live_results_ready else None
+    )
+    conjunctions = (
+        load_csv(str(config.CONJUNCTIONS_FILE))
+        if live_results_ready else None
+    )
 
     c1, c2, c3 = st.columns(3)
     c1.metric("Current orbital objects", int(len(orbital_df)) if orbital_df is not None else 0)
@@ -722,13 +732,16 @@ def render_live_tab():
         except Exception as exc:
             st.info(f"Live globe unavailable: {exc}")
 
-    if conjunctions is not None and not conjunctions.empty:
+    if live_results_ready and conjunctions is not None and not conjunctions.empty:
         st.subheader("Current conjunction screening")
         try:
             st.plotly_chart(viz.miss_distance_scatter(conjunctions), width="stretch")
         except Exception as exc:
             st.info(f"Conjunction chart unavailable: {exc}")
         st.dataframe(conjunctions, width="stretch")
+    else:
+        st.subheader("Current conjunction screening")
+        st.info("No live conjunction results are loaded. Rebuild the live results to populate this chart and table.")
 
     # Current live workflow: analytical collision probability is primary.
     # Monte Carlo is not required for the present-day forecast.
@@ -972,9 +985,9 @@ def render_live_tab():
     analytic_path = PROJECT_ROOT / "results" / "analytic_pc_results.csv"
 
     s1, s2, s3 = st.columns(3)
-    s1.metric("Propagation grid", "Ready" if propagated_path.exists() else "Missing")
-    s2.metric("Conjunction file", "Ready" if conjunction_path.exists() else "Missing")
-    s3.metric("Analytical Pc result", "Ready" if analytic_path.exists() else "Missing")
+    s1.metric("Propagation grid", "Ready" if live_results_ready and propagated_path.exists() else "Not loaded")
+    s2.metric("Conjunction file", "Ready" if live_results_ready and conjunction_path.exists() else "Not loaded")
+    s3.metric("Analytical Pc result", "Ready" if live_results_ready and analytic_path.exists() else "Not loaded")
 
     run_live_pipeline = st.button(
         "▶ Rebuild live inputs and calculate analytical Pc",
@@ -1001,6 +1014,7 @@ def render_live_tab():
             ):
                 summary = live_refresh.refresh_all_live_results()
             st.session_state["live_analytical_pc_summary"] = summary
+            st.session_state["live_refresh_metrics_ready"] = True
             for stale_key in (
                 "live_hybrid_mc_result",
                 "live_hybrid_mc_timestamp",
@@ -1020,8 +1034,8 @@ def render_live_tab():
         except Exception as exc:
             st.error(f"Live analytical-probability pipeline failed: {exc}")
 
-    analytic_result = load_csv(str(analytic_path))
-    if analytic_result is not None and not analytic_result.empty:
+    analytic_result = load_csv(str(analytic_path)) if live_results_ready else None
+    if live_results_ready and analytic_result is not None and not analytic_result.empty:
         st.subheader("Analytical collision-probability results")
         st.caption(
             "This conjunction signature plot maps miss distance against relative velocity. "
@@ -1043,10 +1057,10 @@ def render_live_tab():
         ]
         display_cols = [column for column in display_cols if column in analytic_result.columns]
         st.dataframe(analytic_result[display_cols], width="stretch", hide_index=True)
-    elif analytic_path.exists():
+    elif live_results_ready and analytic_path.exists():
         st.info("The analytical Pc result file exists but contains no conjunction rows.")
     else:
-        st.info("No analytical Pc results saved yet. Run the analytical live pipeline above.")
+        st.info("No current analytical Pc results are loaded. Rebuild the live results to generate them.")
 
     if predictions is not None and not predictions.empty:
         st.subheader("30-day risk forecast")
