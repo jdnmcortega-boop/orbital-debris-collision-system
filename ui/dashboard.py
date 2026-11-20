@@ -175,13 +175,10 @@ def render_overview():
             type="primary",
             width="stretch",
         ):
-            # Show a clean zero baseline before the expensive rebuild begins.
-            # The refreshed CSV outputs are read again after completion below.
-            reset_cols = st.columns(3)
-            reset_cols[0].metric("Screened conjunctions", 0)
-            reset_cols[1].metric("30-day forecast rows", 0)
-            reset_cols[2].metric("HIGH ORION-X response-priority events", 0)
-            st.caption("Previous live-result counts reset to zero. Rebuilding current results…")
+            # Hide prior-run counts immediately. They remain zero until this
+            # refresh completes successfully and the new outputs are available.
+            st.session_state["live_refresh_metrics_ready"] = False
+            st.caption("Live-result counts reset to zero. Rebuilding current results…")
 
             try:
                 # Reload the live-refresh module when the button is clicked so
@@ -205,6 +202,7 @@ def render_overview():
                         expanded=False,
                     )
                 st.session_state["live_refresh_summary"] = summary
+                st.session_state["live_refresh_metrics_ready"] = True
                 # Drop in-memory copies so the next render cannot resurrect
                 # results from before this refresh (especially when there are
                 # now zero conjunctions and old output files were removed).
@@ -271,12 +269,16 @@ def render_overview():
 
     conjunctions = None
     predictions = None
-    if conjunction_path.exists():
+    metrics_ready = bool(st.session_state.get("live_refresh_metrics_ready", False))
+    # Do not present CSVs left by an earlier deployment/session as current live
+    # results. The three live-result counters start at zero and are unlocked
+    # only after a successful rebuild in this session.
+    if metrics_ready and conjunction_path.exists():
         try:
             conjunctions = pd.read_csv(conjunction_path)
         except Exception:
             pass
-    if predictions_path.exists():
+    if metrics_ready and predictions_path.exists():
         try:
             predictions = pd.read_csv(predictions_path)
         except Exception:
