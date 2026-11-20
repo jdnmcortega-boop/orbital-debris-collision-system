@@ -174,7 +174,7 @@ def _reentry_survival(n, seed, mass_kg, area_m2, heat_capacity, melt_temp, speed
 
 
 def render_hardware_research_tab():
-    st.header("🧪 Hardware Research Experiments — H04 to H09")
+    st.header("🧪 Hardware Research Experiments")
     st.caption("Repeatable, parameterized Monte Carlo simulations with baseline comparisons and statistical summaries.")
     st.warning(
         "Research-model warning: these are exploratory computational models, not measured prototype results or validated "
@@ -183,10 +183,10 @@ def render_hardware_research_tab():
     )
     n = st.select_slider("Monte Carlo trials per comparison", options=[100, 250, 500, 1000, 2500, 5000], value=1000)
     seed = st.number_input("Random seed (reproducibility)", min_value=0, max_value=999999, value=42, step=1)
-    tabs = st.tabs(["H04–H05 Detumbling", "H06–H07 Capture", "H08 Disposal", "H09 Reentry"])
+    tabs = st.tabs(["Detumbling", "Capture", "Disposal", "Reentry"])
 
     with tabs[0]:
-        st.subheader("H04 — Active magnetic detumbling vs. passive baseline")
+        st.subheader("Active magnetic detumbling vs. passive baseline")
         c1,c2,c3 = st.columns(3)
         mass = c1.number_input("Debris mass (kg)", 0.1, 100.0, 5.0, 0.1, key="hw_mass")
         radius = c2.number_input("Effective radius (m)", 0.02, 1.0, 0.15, 0.01, key="hw_radius")
@@ -195,7 +195,7 @@ def render_hardware_research_tab():
         field = c1.number_input("Effective magnetic field (T)", 0.05, 3.0, 0.5, 0.05, key="hw_field")
         conductivity = c2.number_input("Debris conductivity (S/m)", 1e4, 6e7, 3.5e7, format="%.2e", key="hw_cond")
         duration = c3.number_input("Comparison duration (s)", 10.0, 86400.0, 600.0, 10.0, key="hw_duration")
-        if st.button("Run H04–H05 detumbling trials", type="primary", key="run_detumble"):
+        if st.button("Run detumbling trials", type="primary", key="run_detumble"):
             result = _run_detumbling(int(n), int(seed), duration, mass, radius, omega, field, conductivity)
             st.session_state["hw_detumble"] = result
             # H05 condition sweep varies mass, radius, and starting spin.
@@ -224,21 +224,21 @@ def render_hardware_research_tab():
             st.dataframe(pd.DataFrame([_summary("Active final angular velocity",active,"rad/s"),
                                        _summary("Baseline final angular velocity",baseline,"rad/s")]), hide_index=True, width="stretch")
             st.write(f"Welch t-test: p = {test['p']:.6g}; mean difference (active − baseline) = {test['difference']:.6g} rad/s.")
-            st.write("H04: " + ("Reject the null hypothesis in this model run." if test["p"]<0.05 else "Fail to reject the null hypothesis in this model run."))
+            st.write("Detumbling comparison: " + ("Reject the null hypothesis in this model run." if test["p"]<0.05 else "Fail to reject the null hypothesis in this model run."))
             sweep = st.session_state.get("hw_detumble_sweep")
             if sweep is not None:
-                st.subheader("H05 — Varying debris conditions")
+                st.subheader("Varying debris conditions")
                 st.dataframe(sweep, hide_index=True, width="stretch")
                 st.plotly_chart(px.bar(sweep, x="Condition", y="Mean detumbling time (s)", error_y="SD (s)",
                                        title="Modeled detumbling time across debris conditions"), width="stretch")
                 h05 = stats.f_oneway(*st.session_state["hw_detumble_sweep_trials"])
-                st.write(f"H05 one-way ANOVA across the three modeled debris conditions: p = {float(h05.pvalue):.6g}.")
-                st.write("H05: " + ("Reject the null hypothesis in this model run." if h05.pvalue < 0.05 else "Fail to reject the null hypothesis in this model run."))
+                st.write(f"One-way ANOVA across the three modeled debris conditions: p = {float(h05.pvalue):.6g}.")
+                st.write("Debris-condition comparison: " + ("Reject the null hypothesis in this model run." if h05.pvalue < 0.05 else "Fail to reject the null hypothesis in this model run."))
                 st.caption("The conditions are deliberately different modeled combinations of mass, size, and initial spin. The ANOVA tests those simulated groups; it does not establish a real-world hardware effect.")
             st.caption("Model limitation: the effective damping coefficient is phenomenological. A static superconducting field alone does not guarantee eddy-current braking; relative motion, conductive paths, field geometry, and measured torque are required.")
 
     with tabs[1]:
-        st.subheader("H06–H07 — Gecko-inspired hybrid vs. conventional capture")
+        st.subheader("Gecko-inspired hybrid vs. conventional capture")
         c1,c2,c3 = st.columns(3)
         roughness = c1.slider("Surface roughness/contact factor", 0.1, 1.0, 0.75, 0.05)
         contamination = c2.slider("Surface contamination fraction", 0.0, 0.9, 0.15, 0.05)
@@ -246,7 +246,7 @@ def render_hardware_research_tab():
         c1,c2 = st.columns(2)
         disturbance = c1.slider("Post-capture disturbance factor", 0.1, 2.0, 0.8, 0.05)
         adhesive = c2.slider("Hybrid adhesion-strength factor", 0.2, 2.0, 1.15, 0.05)
-        if st.button("Run H06–H07 capture trials", type="primary", key="run_capture_compare"):
+        if st.button("Run capture trials", type="primary", key="run_capture_compare"):
             cap = _capture_trials(int(n), int(seed), roughness, contamination, speed, disturbance, adhesive)
             st.session_state["hw_capture"] = cap
         cap = st.session_state.get("hw_capture")
@@ -258,9 +258,9 @@ def render_hardware_research_tab():
             a.metric("Hybrid success rate", f"{ph:.1%}")
             b.metric("Conventional success rate", f"{pc:.1%}")
             c.metric("Difference", f"{(ph-pc)*100:+.1f} pp")
-            st.write(f"H06 two-proportion chi-square test: p = {prop['p']:.6g}.")
-            st.write("H06: " + ("Reject the null hypothesis in this model run." if prop["p"]<0.05 else "Fail to reject the null hypothesis in this model run."))
-            st.subheader("H07 — Capture time and post-capture stability")
+            st.write(f"Two-proportion chi-square test: p = {prop['p']:.6g}.")
+            st.write("Capture-success comparison: " + ("Reject the null hypothesis in this model run." if prop["p"]<0.05 else "Fail to reject the null hypothesis in this model run."))
+            st.subheader("Capture time and post-capture stability")
             times = _welch(cap["hybrid_time"], cap["conventional_time"])
             stability = _welch(cap["hybrid_stability"], cap["conventional_stability"])
             st.write(f"Successful-trial capture time: hybrid {np.mean(cap['hybrid_time']):.2f} s; conventional {np.mean(cap['conventional_time']):.2f} s; Welch p = {times['p']:.6g}.")
@@ -269,10 +269,10 @@ def render_hardware_research_tab():
                                   "Metric":["Capture success rate"]*2+["Mean stability index"]*2,
                                   "Value":[ph,pc,float(np.mean(cap["hybrid_stability"])),float(np.mean(cap["conventional_stability"]))]})
             st.plotly_chart(px.bar(frame,x="Metric",y="Value",color="Mechanism",barmode="group",title="Capture mechanism comparison"),width="stretch")
-            st.caption("H07 uses successful-trial capture times and a dimensionless stability index. A physical stability test needs measured pull-off/shear forces and disturbance loads.")
+            st.caption("The model uses successful-trial capture times and a dimensionless stability index. A physical stability test needs measured pull-off/shear forces and disturbance loads.")
 
     with tabs[2]:
-        st.subheader("H08 — Disposal strategy comparison")
+        st.subheader("Disposal strategy comparison")
         c1,c2,c3 = st.columns(3)
         altitude = c1.slider("Initial circular orbit altitude (km)", 200, 2000, 700, 25)
         perigee = c2.slider("Target perigee altitude (km)", 80, 300, 120, 10)
@@ -282,7 +282,7 @@ def render_hardware_research_tab():
         object_mass = c2.number_input("Debris mass (kg)", 0.1, 5000.0, 10.0, 0.5, key="h08_mass")
         reference_area = c3.number_input("Reference area (m²)", 0.001, 100.0, 0.1, 0.01, key="h08_area")
         drag_coefficient = st.number_input("Drag coefficient (Cd)", 1.0, 3.0, 2.2, 0.1, key="h08_cd")
-        if st.button("Calculate H08 disposal scenarios", type="primary", key="run_disposal"):
+        if st.button("Calculate disposal scenarios", type="primary", key="run_disposal"):
             if perigee >= altitude:
                 st.error("Target perigee must be below the initial orbit altitude.")
             else:
@@ -358,7 +358,7 @@ def render_hardware_research_tab():
             )
 
     with tabs[3]:
-        st.subheader("H09 — Estimated reentry survivability")
+        st.subheader("Estimated reentry survivability")
         c1,c2,c3 = st.columns(3)
         mass = c1.number_input("Object mass (kg)", 0.1, 500.0, 10.0, 0.5, key="re_mass")
         area = c2.number_input("Reference area (m²)", 0.001, 10.0, 0.08, 0.01, key="re_area")
@@ -367,7 +367,7 @@ def render_hardware_research_tab():
         melt = c1.number_input("Representative melt temperature (K)", 500.0, 3500.0, 1700.0, 50.0)
         velocity = c2.number_input("Entry speed (km/s)", 5.0, 12.0, 7.8, 0.1)
         density = c3.number_input("Effective path-average density (kg/m³)", 1e-8, 0.01, 1e-5, format="%.7f")
-        if st.button("Run H09 reentry scenario comparison", type="primary", key="run_reentry"):
+        if st.button("Run reentry scenario comparison", type="primary", key="run_reentry"):
             scenarios = [
                 ("Low-heating disposal", velocity*0.92, density*0.70),
                 ("Nominal controlled deorbit", velocity, density),
@@ -391,8 +391,8 @@ def render_hardware_research_tab():
             st.dataframe(summary, hide_index=True, width="stretch")
             survival_groups = [g["Estimated remaining mass fraction"].to_numpy() for _,g in reentry.groupby("Scenario")]
             h09 = stats.f_oneway(*survival_groups)
-            st.write(f"H09 one-way ANOVA on estimated remaining-mass fraction across disposal scenarios: p = {float(h09.pvalue):.6g}.")
-            st.write("H09: " + ("Reject the null hypothesis in this model run." if h09.pvalue < 0.05 else "Fail to reject the null hypothesis in this model run."))
+            st.write(f"One-way ANOVA on estimated remaining-mass fraction across disposal scenarios: p = {float(h09.pvalue):.6g}.")
+            st.write("Reentry-survivability comparison: " + ("Reject the null hypothesis in this model run." if h09.pvalue < 0.05 else "Fail to reject the null hypothesis in this model run."))
             st.plotly_chart(px.box(reentry,x="Scenario",y="Estimated remaining mass fraction",
                                    title="Modeled reentry remaining-mass comparison"),width="stretch")
             st.caption("Scenarios vary the effective entry speed and path-average atmospheric density to represent different disposal/reentry conditions. This lumped energy-balance proxy omits altitude-resolved trajectory, shock-layer chemistry, radiative heating, ablation, fragmentation, and material-specific shape effects. It is not a validated reentry survivability predictor.")
