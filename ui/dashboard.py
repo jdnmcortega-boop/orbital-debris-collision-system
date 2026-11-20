@@ -175,6 +175,14 @@ def render_overview():
             type="primary",
             width="stretch",
         ):
+            # Show a clean zero baseline before the expensive rebuild begins.
+            # The refreshed CSV outputs are read again after completion below.
+            reset_cols = st.columns(3)
+            reset_cols[0].metric("Screened conjunctions", 0)
+            reset_cols[1].metric("30-day forecast rows", 0)
+            reset_cols[2].metric("HIGH ORION-X response-priority events", 0)
+            st.caption("Previous live-result counts reset to zero. Rebuilding current results…")
+
             try:
                 # Reload the live-refresh module when the button is clicked so
                 # the running Streamlit process does not keep an older imported
